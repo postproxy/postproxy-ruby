@@ -96,6 +96,56 @@ post = client.posts.create(
 client.posts.delete("post-id")
 ```
 
+## Post Stats
+
+Retrieve stats snapshots for posts over time. Supports filtering by profiles/networks and timespan.
+
+```ruby
+# Get stats for one or more posts
+stats = client.posts.stats(["post-id-1", "post-id-2"])
+stats.data.each do |post_id, post_stats|
+  post_stats.platforms.each do |platform|
+    puts "#{post_id} on #{platform.platform} (#{platform.profile_id}):"
+    platform.records.each do |record|
+      puts "  #{record.recorded_at}: #{record.stats}"
+    end
+  end
+end
+
+# Filter by profiles or networks
+stats = client.posts.stats(["post-id"], profiles: ["instagram", "twitter"])
+
+# Filter by profile hashids
+stats = client.posts.stats(["post-id"], profiles: ["prof-abc", "prof-def"])
+
+# Filter by time range
+stats = client.posts.stats(
+  ["post-id"],
+  from: "2026-02-01T00:00:00Z",
+  to: "2026-02-24T00:00:00Z"
+)
+
+# Using Time objects
+stats = client.posts.stats(
+  ["post-id"],
+  from: Time.now - 86400 * 7,
+  to: Time.now
+)
+```
+
+Stats vary by platform:
+
+| Platform | Fields |
+|----------|--------|
+| Instagram | `impressions`, `likes`, `comments`, `saved`, `profile_visits`, `follows` |
+| Facebook | `impressions`, `clicks`, `likes` |
+| Threads | `impressions`, `likes`, `replies`, `reposts`, `quotes`, `shares` |
+| Twitter | `impressions`, `likes`, `retweets`, `comments`, `quotes`, `saved` |
+| YouTube | `impressions`, `likes`, `comments`, `saved` |
+| LinkedIn | `impressions` |
+| TikTok | `impressions`, `likes`, `comments`, `shares` |
+| Pinterest | `impressions`, `likes`, `comments`, `saved`, `outbound_clicks` |
+
 ## Profiles
 
 ```ruby

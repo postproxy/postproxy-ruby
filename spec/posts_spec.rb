@@ -123,6 +123,128 @@ RSpec.describe PostProxy::Resources::Posts do
     end
   end
 
+  describe "#stats" do
+    let(:stats_response) do
+      {
+        data: {
+          "abc123" => {
+            platforms: [
+              {
+                profile_id: "prof_abc",
+                platform: "instagram",
+                records: [
+                  {
+                    stats: { impressions: 1200, likes: 85, comments: 12, saved: 8 },
+                    recorded_at: "2026-02-20T12:00:00Z"
+                  },
+                  {
+                    stats: { impressions: 1523, likes: 102, comments: 15, saved: 11 },
+                    recorded_at: "2026-02-21T04:00:00Z"
+                  }
+                ]
+              }
+            ]
+          },
+          "def456" => {
+            platforms: [
+              {
+                profile_id: "prof_def",
+                platform: "twitter",
+                records: [
+                  {
+                    stats: { impressions: 430, likes: 22, retweets: 5 },
+                    recorded_at: "2026-02-20T12:00:00Z"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    end
+
+    it "returns stats for multiple posts" do
+      stub_api(:get, "/posts/stats",
+        body: stats_response,
+        query: { post_ids: "abc123,def456" }
+      )
+
+      result = client.posts.stats(["abc123", "def456"])
+      expect(result).to be_a(PostProxy::StatsResponse)
+      expect(result.data.keys).to contain_exactly("abc123", "def456")
+
+      ig = result.data["abc123"]
+      expect(ig).to be_a(PostProxy::PostStats)
+      expect(ig.platforms.length).to eq(1)
+      expect(ig.platforms.first.platform).to eq("instagram")
+      expect(ig.platforms.first.profile_id).to eq("prof_abc")
+      expect(ig.platforms.first.records.length).to eq(2)
+      expect(ig.platforms.first.records.first.stats[:impressions]).to eq(1200)
+      expect(ig.platforms.first.records.first.recorded_at).to be_a(Time)
+
+      tw = result.data["def456"]
+      expect(tw.platforms.first.platform).to eq("twitter")
+      expect(tw.platforms.first.records.first.stats[:retweets]).to eq(5)
+    end
+
+    it "accepts a string of post_ids" do
+      stub = stub_api(:get, "/posts/stats",
+        body: { data: {} },
+        query: { post_ids: "abc123" }
+      )
+
+      client.posts.stats("abc123")
+      expect(stub).to have_been_requested
+    end
+
+    it "sends filter parameters" do
+      stub = stub_api(:get, "/posts/stats",
+        body: { data: {} },
+        query: {
+          post_ids: "abc123",
+          profiles: "instagram,twitter",
+          from: "2026-02-01T00:00:00Z",
+          to: "2026-02-24T00:00:00Z"
+        }
+      )
+
+      client.posts.stats(
+        ["abc123"],
+        profiles: ["instagram", "twitter"],
+        from: "2026-02-01T00:00:00Z",
+        to: "2026-02-24T00:00:00Z"
+      )
+      expect(stub).to have_been_requested
+    end
+
+    it "accepts profiles as a string" do
+      stub = stub_api(:get, "/posts/stats",
+        body: { data: {} },
+        query: { post_ids: "abc123", profiles: "instagram" }
+      )
+
+      client.posts.stats("abc123", profiles: "instagram")
+      expect(stub).to have_been_requested
+    end
+
+    it "accepts Time objects for from/to" do
+      from_time = Time.parse("2026-02-01T00:00:00Z")
+      to_time = Time.parse("2026-02-24T00:00:00Z")
+
+      stub = stub_api(:get, "/posts/stats",
+        body: { data: {} },
+        query: {
+          post_ids: "abc123",
+          from: from_time.iso8601,
+          to: to_time.iso8601
+        }
+      )
+
+      client.posts.stats("abc123", from: from_time, to: to_time)
+      expect(stub).to have_been_requested
+    end
+  end
+
   describe "#publish_draft" do
     it "publishes a draft post" do
       stub_api(:post, "/posts/post-1/publish", body: {

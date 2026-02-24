@@ -110,6 +110,56 @@ module PostProxy
     attr_accessor :id, :name
   end
 
+  class StatsRecord < Model
+    attr_accessor :stats, :recorded_at
+
+    def initialize(**attrs)
+      @stats = {}
+      @recorded_at = nil
+      super
+      @recorded_at = parse_time(@recorded_at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
+  class PlatformStats < Model
+    attr_accessor :profile_id, :platform, :records
+
+    def initialize(**attrs)
+      @records = []
+      super
+      @records = (@records || []).map do |r|
+        r.is_a?(StatsRecord) ? r : StatsRecord.new(**r.transform_keys(&:to_sym))
+      end
+    end
+  end
+
+  class PostStats < Model
+    attr_accessor :platforms
+
+    def initialize(**attrs)
+      @platforms = []
+      super
+      @platforms = (@platforms || []).map do |p|
+        p.is_a?(PlatformStats) ? p : PlatformStats.new(**p.transform_keys(&:to_sym))
+      end
+    end
+  end
+
+  class StatsResponse
+    attr_reader :data
+
+    def initialize(data:)
+      @data = data
+    end
+  end
+
   class ListResponse
     attr_reader :data
 
