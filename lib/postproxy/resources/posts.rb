@@ -87,6 +87,19 @@ module PostProxy
         Post.new(**result)
       end
 
+      def stats(post_ids, profiles: nil, from: nil, to: nil)
+        params = { post_ids: post_ids.is_a?(Array) ? post_ids.join(",") : post_ids }
+        params[:profiles] = profiles.is_a?(Array) ? profiles.join(",") : profiles if profiles
+        params[:from] = format_time(from) if from
+        params[:to] = format_time(to) if to
+
+        result = @client.request(:get, "/posts/stats", params: params)
+        posts = (result[:data] || {}).each_with_object({}) do |(post_id, post_data), hash|
+          hash[post_id.to_s] = PostStats.new(**post_data.transform_keys(&:to_sym))
+        end
+        StatsResponse.new(data: posts)
+      end
+
       def delete(id, profile_group_id: nil)
         result = @client.request(:delete, "/posts/#{id}", profile_group_id: profile_group_id)
         DeleteResponse.new(**result)

@@ -85,6 +85,62 @@ RSpec.describe "PostProxy types" do
     end
   end
 
+  describe PostProxy::StatsRecord do
+    it "parses stats and recorded_at" do
+      record = PostProxy::StatsRecord.new(
+        stats: { impressions: 1200, likes: 85 },
+        recorded_at: "2026-02-20T12:00:00Z"
+      )
+
+      expect(record.stats).to eq({ impressions: 1200, likes: 85 })
+      expect(record.recorded_at).to be_a(Time)
+    end
+  end
+
+  describe PostProxy::PlatformStats do
+    it "parses platform stats with nested records" do
+      ps = PostProxy::PlatformStats.new(
+        profile_id: "prof_abc",
+        platform: "instagram",
+        records: [
+          { stats: { impressions: 100 }, recorded_at: "2026-02-20T12:00:00Z" }
+        ]
+      )
+
+      expect(ps.profile_id).to eq("prof_abc")
+      expect(ps.platform).to eq("instagram")
+      expect(ps.records.length).to eq(1)
+      expect(ps.records.first).to be_a(PostProxy::StatsRecord)
+    end
+  end
+
+  describe PostProxy::PostStats do
+    it "parses post stats with nested platform stats" do
+      post_stats = PostProxy::PostStats.new(
+        platforms: [
+          {
+            profile_id: "prof_abc",
+            platform: "instagram",
+            records: [
+              { stats: { impressions: 1200 }, recorded_at: "2026-02-20T12:00:00Z" }
+            ]
+          }
+        ]
+      )
+
+      expect(post_stats.platforms.length).to eq(1)
+      expect(post_stats.platforms.first).to be_a(PostProxy::PlatformStats)
+      expect(post_stats.platforms.first.records.first.stats[:impressions]).to eq(1200)
+    end
+  end
+
+  describe PostProxy::StatsResponse do
+    it "wraps data hash" do
+      response = PostProxy::StatsResponse.new(data: { "abc" => "value" })
+      expect(response.data).to eq({ "abc" => "value" })
+    end
+  end
+
   describe PostProxy::PlatformParams do
     it "serializes platform params excluding nil values" do
       params = PostProxy::PlatformParams.new(
