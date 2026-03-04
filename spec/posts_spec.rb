@@ -245,6 +245,65 @@ RSpec.describe PostProxy::Resources::Posts do
     end
   end
 
+  describe "#create with thread" do
+    it "sends thread in request body" do
+      stub_api(:post, "/posts", body: {
+        id: "post-thread",
+        body: "Main post",
+        status: "pending",
+        created_at: "2025-01-01T00:00:00Z",
+        platforms: [],
+        thread: [
+          { id: "t-1", body: "Reply 1", media: [] },
+          { id: "t-2", body: "Reply 2", media: [] },
+        ]
+      })
+
+      post = client.posts.create("Main post", profiles: ["prof-1"], thread: [
+        { body: "Reply 1" },
+        { body: "Reply 2", media: ["https://example.com/img.jpg"] },
+      ])
+      expect(post.thread.length).to eq(2)
+      expect(post.thread.first).to be_a(PostProxy::ThreadChild)
+      expect(post.thread.first.body).to eq("Reply 1")
+
+      expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/posts")
+        .with { |req|
+          body = JSON.parse(req.body, symbolize_names: true)
+          body[:thread].length == 2 &&
+            body[:thread][0][:body] == "Reply 1" &&
+            body[:thread][1][:media] == ["https://example.com/img.jpg"]
+        }
+    end
+  end
+
+  describe "#get with media and thread" do
+    it "parses post with media and thread" do
+      stub_api(:get, "/posts/post-1", body: {
+        id: "post-1",
+        body: "Hello",
+        status: "media_processing_failed",
+        created_at: "2025-01-01T00:00:00Z",
+        platforms: [],
+        media: [
+          { id: "m-1", status: "processed", content_type: "image/jpeg", url: "https://cdn.example.com/img.jpg" }
+        ],
+        thread: [
+          { id: "t-1", body: "Reply", media: [] }
+        ]
+      })
+
+      post = client.posts.get("post-1")
+      expect(post.status).to eq("media_processing_failed")
+      expect(post.media.length).to eq(1)
+      expect(post.media.first).to be_a(PostProxy::Media)
+      expect(post.media.first.status).to eq("processed")
+      expect(post.thread.length).to eq(1)
+      expect(post.thread.first).to be_a(PostProxy::ThreadChild)
+      expect(post.thread.first.body).to eq("Reply")
+    end
+  end
+
   describe "#publish_draft" do
     it "publishes a draft post" do
       stub_api(:post, "/posts/post-1/publish", body: {

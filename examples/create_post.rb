@@ -55,3 +55,17 @@ post = client.posts.create(
   draft: true
 )
 puts "Cross-platform post: #{post.id}"
+
+# Thread post
+twitter_profile = profiles.find { |p| p.platform == "twitter" }
+
+thread_post = client.posts.create(
+  "Here's a thread about PostProxy 🧵",
+  profiles: [twitter_profile.id],
+  thread: [
+    { body: "First, connect your social accounts." },
+    { body: "Then, create posts with media!", media: ["https://example.com/demo.jpg"] },
+    { body: "Finally, schedule or publish instantly." },
+  ]
+)
+puts "Thread post: #{thread_post.id} (#{thread_post.thread.length} children)"

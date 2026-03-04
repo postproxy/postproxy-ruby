@@ -84,18 +84,89 @@ module PostProxy
     end
   end
 
+  class Media < Model
+    attr_accessor :id, :status, :error_message, :content_type, :source_url, :url
+
+    def initialize(**attrs)
+      @error_message = nil
+      @source_url = nil
+      @url = nil
+      super
+    end
+  end
+
+  class ThreadChild < Model
+    attr_accessor :id, :body, :media
+
+    def initialize(**attrs)
+      @media = []
+      super
+      @media = (@media || []).map do |m|
+        m.is_a?(Media) ? m : Media.new(**m.transform_keys(&:to_sym))
+      end
+    end
+  end
+
   class Post < Model
-    attr_accessor :id, :body, :status, :scheduled_at, :created_at, :platforms
+    attr_accessor :id, :body, :status, :scheduled_at, :created_at, :media, :platforms, :thread
 
     def initialize(**attrs)
       @scheduled_at = nil
+      @media = []
       @platforms = []
+      @thread = []
       super
       @scheduled_at = parse_time(@scheduled_at)
       @created_at = parse_time(@created_at)
+      @media = (@media || []).map do |m|
+        m.is_a?(Media) ? m : Media.new(**m.transform_keys(&:to_sym))
+      end
       @platforms = (@platforms || []).map do |p|
         p.is_a?(PlatformResult) ? p : PlatformResult.new(**p.transform_keys(&:to_sym))
       end
+      @thread = (@thread || []).map do |t|
+        t.is_a?(ThreadChild) ? t : ThreadChild.new(**t.transform_keys(&:to_sym))
+      end
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
+  class Webhook < Model
+    attr_accessor :id, :url, :events, :enabled, :description, :secret,
+                  :created_at, :updated_at
+
+    def initialize(**attrs)
+      @events = []
+      @description = nil
+      @secret = nil
+      super
+      @created_at = parse_time(@created_at)
+      @updated_at = parse_time(@updated_at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
+  class WebhookDelivery < Model
+    attr_accessor :id, :event_id, :event_type, :response_status,
+                  :attempt_number, :success, :attempted_at, :created_at
+
+    def initialize(**attrs)
+      @response_status = nil
+      super
+      @attempted_at = parse_time(@attempted_at)
+      @created_at = parse_time(@created_at)
     end
 
     private
@@ -213,7 +284,7 @@ module PostProxy
   end
 
   class YouTubeParams < Model
-    attr_accessor :format, :title, :privacy_status, :cover_url
+    attr_accessor :format, :title, :privacy_status, :cover_url, :made_for_kids
   end
 
   class PinterestParams < Model

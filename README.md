@@ -92,6 +92,17 @@ post = client.posts.create(
   scheduled_at: (Time.now + 3600).iso8601
 )
 
+# Create a thread post
+post = client.posts.create(
+  "Thread starts here",
+  profiles: ["prof-1"],
+  thread: [
+    { body: "Second post in the thread" },
+    { body: "Third with media", media: ["https://example.com/img.jpg"] },
+  ]
+)
+post.thread.each { |child| puts "#{child.id}: #{child.body}" }
+
 # Delete a post
 client.posts.delete("post-id")
 ```
@@ -145,6 +156,46 @@ Stats vary by platform:
 | LinkedIn | `impressions` |
 | TikTok | `impressions`, `likes`, `comments`, `shares` |
 | Pinterest | `impressions`, `likes`, `comments`, `saved`, `outbound_clicks` |
+
+## Webhooks
+
+```ruby
+# List webhooks
+webhooks = client.webhooks.list.data
+
+# Get a webhook
+webhook = client.webhooks.get("wh-id")
+
+# Create a webhook
+webhook = client.webhooks.create(
+  "https://example.com/webhook",
+  events: ["post.published", "post.failed"],
+  description: "My webhook"
+)
+puts webhook.id, webhook.secret
+
+# Update a webhook
+webhook = client.webhooks.update("wh-id", events: ["post.published"], enabled: false)
+
+# Delete a webhook
+client.webhooks.delete("wh-id")
+
+# List deliveries
+deliveries = client.webhooks.deliveries("wh-id", page: 1, per_page: 10)
+deliveries.data.each { |d| puts "#{d.event_type}: #{d.success}" }
+```
+
+### Signature verification
+
+Verify incoming webhook signatures using HMAC-SHA256:
+
+```ruby
+PostProxy::WebhookSignature.verify(
+  payload: request.body.read,
+  signature_header: request.headers["X-PostProxy-Signature"],
+  secret: "whsec_..."
+)
+```
 
 ## Profiles
 
