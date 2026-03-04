@@ -7,7 +7,9 @@ module PostProxy
 
   PROFILE_STATUSES = %w[active expired inactive].freeze
 
-  POST_STATUSES = %w[pending draft processing processed scheduled].freeze
+  POST_STATUSES = %w[pending draft processing processed scheduled media_processing_failed].freeze
+
+  MEDIA_STATUSES = %w[pending processed failed].freeze
 
   PLATFORM_POST_STATUSES = %w[pending processing published failed deleted].freeze
 

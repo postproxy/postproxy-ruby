@@ -29,8 +29,11 @@ module PostProxy
       end
 
       def create(body, profiles:, media: nil, media_files: nil, platforms: nil,
-                 scheduled_at: nil, draft: nil, profile_group_id: nil)
-        if media_files && !media_files.empty?
+                 thread: nil, scheduled_at: nil, draft: nil, profile_group_id: nil)
+        has_files = media_files && !media_files.empty?
+        has_thread_files = thread&.any? { |t| t[:media_files]&.any? }
+
+        if has_files || has_thread_files
           form_data = { "post[body]" => body }
           form_data["post[scheduled_at]"] = format_time(scheduled_at) if scheduled_at
           form_data["post[draft]"] = draft.to_s if !draft.nil?
@@ -54,12 +57,28 @@ module PostProxy
             end
           end
 
-          media_files.each do |path|
+          media_files&.each do |path|
             path = path.to_s
             filename = File.basename(path)
             content_type = mime_type_for(filename)
             io = File.open(path, "rb")
             files << ["media[]", filename, io, content_type]
+          end
+
+          thread&.each_with_index do |t, i|
+            form_data["thread[#{i}][body]"] = t[:body] if t[:body]
+
+            t[:media]&.each do |m|
+              files << ["thread[#{i}][media][]", nil, m, "text/plain"]
+            end
+
+            t[:media_files]&.each do |path|
+              path = path.to_s
+              filename = File.basename(path)
+              content_type = mime_type_for(filename)
+              io = File.open(path, "rb")
+              files << ["thread[#{i}][media][]", filename, io, content_type]
+            end
           end
 
           result = @client.request(:post, "/posts",
@@ -75,6 +94,7 @@ module PostProxy
           json_body = { post: post_payload, profiles: profiles }
           json_body[:platforms] = platforms.is_a?(PlatformParams) ? platforms.to_h : platforms if platforms
           json_body[:media] = media if media
+          json_body[:thread] = thread if thread
 
           result = @client.request(:post, "/posts", json: json_body, profile_group_id: profile_group_id)
         end
