@@ -29,7 +29,8 @@ module PostProxy
       end
 
       def create(body, profiles:, media: nil, media_files: nil, platforms: nil,
-                 thread: nil, scheduled_at: nil, draft: nil, profile_group_id: nil)
+                 thread: nil, scheduled_at: nil, draft: nil, queue_id: nil,
+                 queue_priority: nil, profile_group_id: nil)
         has_files = media_files && !media_files.empty?
         has_thread_files = thread&.any? { |t| t[:media_files]&.any? }
 
@@ -95,6 +96,8 @@ module PostProxy
           json_body[:platforms] = platforms.is_a?(PlatformParams) ? platforms.to_h : platforms if platforms
           json_body[:media] = media if media
           json_body[:thread] = thread if thread
+          json_body[:queue_id] = queue_id if queue_id
+          json_body[:queue_priority] = queue_priority if queue_priority
 
           result = @client.request(:post, "/posts", json: json_body, profile_group_id: profile_group_id)
         end

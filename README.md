@@ -157,6 +157,57 @@ Stats vary by platform:
 | TikTok | `impressions`, `likes`, `comments`, `shares` |
 | Pinterest | `impressions`, `likes`, `comments`, `saved`, `outbound_clicks` |
 
+## Queues
+
+```ruby
+# List all queues
+queues = client.queues.list.data
+
+# Get a queue
+queue = client.queues.get("queue-id")
+
+# Get next available slot
+next_slot = client.queues.next_slot("queue-id")
+puts next_slot.next_slot
+
+# Create a queue with timeslots
+queue = client.queues.create(
+  "Morning Posts",
+  profile_group_id: "pg-abc",
+  description: "Weekday morning content",
+  timezone: "America/New_York",
+  jitter: 10,
+  timeslots: [
+    { day: 1, time: "09:00" },
+    { day: 2, time: "09:00" },
+    { day: 3, time: "09:00" },
+  ]
+)
+
+# Update a queue
+queue = client.queues.update("queue-id",
+  jitter: 15,
+  timeslots: [
+    { day: 6, time: "10:00" },        # add new timeslot
+    { id: 1, _destroy: true },         # remove existing timeslot
+  ]
+)
+
+# Pause/unpause a queue
+client.queues.update("queue-id", enabled: false)
+
+# Delete a queue
+client.queues.delete("queue-id")
+
+# Add a post to a queue
+post = client.posts.create(
+  "This post will be scheduled by the queue",
+  profiles: ["prof-1"],
+  queue_id: "queue-id",
+  queue_priority: "high"
+)
+```
+
 ## Webhooks
 
 ```ruby
