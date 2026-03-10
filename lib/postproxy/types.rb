@@ -107,14 +107,40 @@ module PostProxy
     end
   end
 
+  class Timeslot < Model
+    attr_accessor :id, :day, :time
+  end
+
+  class Queue < Model
+    attr_accessor :id, :name, :description, :timezone, :enabled, :jitter,
+                  :profile_group_id, :timeslots, :posts_count
+
+    def initialize(**attrs)
+      @description = nil
+      @timeslots = []
+      @posts_count = 0
+      super
+      @timeslots = (@timeslots || []).map do |t|
+        t.is_a?(Timeslot) ? t : Timeslot.new(**t.transform_keys(&:to_sym))
+      end
+    end
+  end
+
+  class NextSlotResponse < Model
+    attr_accessor :next_slot
+  end
+
   class Post < Model
-    attr_accessor :id, :body, :status, :scheduled_at, :created_at, :media, :platforms, :thread
+    attr_accessor :id, :body, :status, :scheduled_at, :created_at, :media, :platforms, :thread,
+                  :queue_id, :queue_priority
 
     def initialize(**attrs)
       @scheduled_at = nil
       @media = []
       @platforms = []
       @thread = []
+      @queue_id = nil
+      @queue_priority = nil
       super
       @scheduled_at = parse_time(@scheduled_at)
       @created_at = parse_time(@created_at)

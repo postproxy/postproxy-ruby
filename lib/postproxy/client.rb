@@ -5,6 +5,7 @@ require_relative "resources/posts"
 require_relative "resources/profiles"
 require_relative "resources/profile_groups"
 require_relative "resources/webhooks"
+require_relative "resources/queues"
 
 module PostProxy
   class Client
@@ -19,6 +20,7 @@ module PostProxy
       @profiles = nil
       @profile_groups = nil
       @webhooks = nil
+      @queues = nil
     end
 
     def posts
@@ -35,6 +37,10 @@ module PostProxy
 
     def webhooks
       @webhooks ||= Resources::Webhooks.new(self)
+    end
+
+    def queues
+      @queues ||= Resources::Queues.new(self)
     end
 
     def request(method, path, params: nil, json: nil, data: nil, files: nil, profile_group_id: nil)
