@@ -291,7 +291,7 @@ module PostProxy
   # Platform-specific parameter structs
 
   class FacebookParams < Model
-    attr_accessor :format, :first_comment, :page_id
+    attr_accessor :format, :title, :first_comment, :page_id
   end
 
   class InstagramParams < Model
