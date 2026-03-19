@@ -105,6 +105,88 @@ module PostProxy
         Post.new(**result)
       end
 
+      def update(id, body: nil, profiles: nil, media: nil, media_files: nil, platforms: nil,
+                 thread: nil, scheduled_at: nil, draft: nil, queue_id: nil,
+                 queue_priority: nil, profile_group_id: nil)
+        has_files = media_files && !media_files.empty?
+        has_thread_files = thread&.any? { |t| t[:media_files]&.any? }
+
+        if has_files || has_thread_files
+          form_data = {}
+          form_data["post[body]"] = body if body
+          form_data["post[scheduled_at]"] = format_time(scheduled_at) if scheduled_at
+          form_data["post[draft]"] = draft.to_s if !draft.nil?
+
+          files = []
+
+          profiles&.each do |p|
+            files << ["profiles[]", nil, p, "text/plain"]
+          end
+
+          media&.each do |m|
+            files << ["media[]", nil, m, "text/plain"]
+          end
+
+          if platforms
+            params_hash = platforms.is_a?(PlatformParams) ? platforms.to_h : platforms
+            params_hash.each do |platform, platform_params|
+              platform_params.each do |key, value|
+                files << ["platforms[#{platform}][#{key}]", nil, value.to_s, "text/plain"]
+              end
+            end
+          end
+
+          media_files&.each do |path|
+            path = path.to_s
+            filename = File.basename(path)
+            content_type = mime_type_for(filename)
+            io = File.open(path, "rb")
+            files << ["media[]", filename, io, content_type]
+          end
+
+          thread&.each_with_index do |t, i|
+            form_data["thread[#{i}][body]"] = t[:body] if t[:body]
+
+            t[:media]&.each do |m|
+              files << ["thread[#{i}][media][]", nil, m, "text/plain"]
+            end
+
+            t[:media_files]&.each do |path|
+              path = path.to_s
+              filename = File.basename(path)
+              content_type = mime_type_for(filename)
+              io = File.open(path, "rb")
+              files << ["thread[#{i}][media][]", filename, io, content_type]
+            end
+          end
+
+          result = @client.request(:patch, "/posts/#{id}",
+            data: form_data,
+            files: files,
+            profile_group_id: profile_group_id
+          )
+        else
+          json_body = {}
+
+          post_payload = {}
+          post_payload[:body] = body if body
+          post_payload[:scheduled_at] = format_time(scheduled_at) if scheduled_at
+          post_payload[:draft] = draft unless draft.nil?
+          json_body[:post] = post_payload unless post_payload.empty?
+
+          json_body[:profiles] = profiles if profiles
+          json_body[:platforms] = platforms.is_a?(PlatformParams) ? platforms.to_h : platforms if platforms
+          json_body[:media] = media if media
+          json_body[:thread] = thread if thread
+          json_body[:queue_id] = queue_id if queue_id
+          json_body[:queue_priority] = queue_priority if queue_priority
+
+          result = @client.request(:patch, "/posts/#{id}", json: json_body, profile_group_id: profile_group_id)
+        end
+
+        Post.new(**result)
+      end
+
       def publish_draft(id, profile_group_id: nil)
         result = @client.request(:post, "/posts/#{id}/publish", profile_group_id: profile_group_id)
         Post.new(**result)
