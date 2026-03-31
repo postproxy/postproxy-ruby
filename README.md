@@ -248,6 +248,43 @@ PostProxy::WebhookSignature.verify(
 )
 ```
 
+## Comments
+
+```ruby
+# List comments on a post (paginated)
+comments = client.comments.list("post-id", profile_id: "profile-id")
+comments.data.each do |comment|
+  puts "#{comment.author_username}: #{comment.body}"
+  comment.replies.each do |reply|
+    puts "  #{reply.author_username}: #{reply.body}"
+  end
+end
+
+# List with pagination
+comments = client.comments.list("post-id", profile_id: "profile-id", page: 2, per_page: 10)
+
+# Get a single comment
+comment = client.comments.get("post-id", "comment-id", profile_id: "profile-id")
+
+# Create a comment
+comment = client.comments.create("post-id", profile_id: "profile-id", text: "Great post!")
+
+# Reply to a comment
+reply = client.comments.create("post-id", profile_id: "profile-id", text: "Thanks!", parent_id: "comment-id")
+
+# Delete a comment
+result = client.comments.delete("post-id", "comment-id", profile_id: "profile-id")
+puts result.accepted  # true
+
+# Hide / unhide a comment
+client.comments.hide("post-id", "comment-id", profile_id: "profile-id")
+client.comments.unhide("post-id", "comment-id", profile_id: "profile-id")
+
+# Like / unlike a comment
+client.comments.like("post-id", "comment-id", profile_id: "profile-id")
+client.comments.unlike("post-id", "comment-id", profile_id: "profile-id")
+```
+
 ## Profiles
 
 ```ruby

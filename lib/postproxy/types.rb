@@ -276,6 +276,42 @@ module PostProxy
     end
   end
 
+  class Comment < Model
+    attr_accessor :id, :external_id, :body, :status, :author_username,
+                  :author_avatar_url, :author_external_id, :parent_external_id,
+                  :like_count, :is_hidden, :permalink, :platform_data,
+                  :posted_at, :created_at, :replies
+
+    def initialize(**attrs)
+      @external_id = nil
+      @author_avatar_url = nil
+      @author_external_id = nil
+      @parent_external_id = nil
+      @like_count = 0
+      @is_hidden = false
+      @permalink = nil
+      @platform_data = nil
+      @replies = []
+      super
+      @posted_at = parse_time(@posted_at)
+      @created_at = parse_time(@created_at)
+      @replies = (@replies || []).map do |r|
+        r.is_a?(Comment) ? r : Comment.new(**r.transform_keys(&:to_sym))
+      end
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
+  class AcceptedResponse < Model
+    attr_accessor :accepted
+  end
+
   class DeleteResponse < Model
     attr_accessor :deleted
   end
