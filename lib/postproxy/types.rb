@@ -63,17 +63,31 @@ module PostProxy
     end
   end
 
+  class ErrorDetails < Model
+    attr_accessor :platform_error_code, :platform_error_subcode, :platform_error_message, :postproxy_note
+
+    def initialize(**attrs)
+      @platform_error_code = nil
+      @platform_error_subcode = nil
+      @platform_error_message = nil
+      @postproxy_note = nil
+      super
+    end
+  end
+
   class PlatformResult < Model
-    attr_accessor :platform, :status, :params, :error, :attempted_at, :insights
+    attr_accessor :platform, :status, :params, :error, :error_details, :attempted_at, :insights
 
     def initialize(**attrs)
       @params = nil
       @error = nil
+      @error_details = nil
       @attempted_at = nil
       @insights = nil
       super
       @attempted_at = parse_time(@attempted_at)
       @insights = Insights.new(**@insights) if @insights.is_a?(Hash)
+      @error_details = ErrorDetails.new(**@error_details.transform_keys(&:to_sym)) if @error_details.is_a?(Hash)
     end
 
     private
@@ -316,6 +330,22 @@ module PostProxy
     attr_accessor :deleted
   end
 
+  class DeletingPlatform < Model
+    attr_accessor :post_profile_id, :platform
+  end
+
+  class DeleteOnPlatformResponse < Model
+    attr_accessor :success, :deleting
+
+    def initialize(**attrs)
+      @deleting = []
+      super
+      @deleting = (@deleting || []).map do |entry|
+        entry.is_a?(DeletingPlatform) ? entry : DeletingPlatform.new(**entry)
+      end
+    end
+  end
+
   class SuccessResponse < Model
     attr_accessor :success
   end
@@ -346,7 +376,8 @@ module PostProxy
   end
 
   class YouTubeParams < Model
-    attr_accessor :format, :title, :privacy_status, :cover_url, :made_for_kids
+    attr_accessor :format, :title, :privacy_status, :cover_url, :made_for_kids,
+                  :tags, :category_id, :contains_synthetic_media
   end
 
   class PinterestParams < Model

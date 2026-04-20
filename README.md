@@ -105,6 +105,18 @@ post.thread.each { |child| puts "#{child.id}: #{child.body}" }
 
 # Delete a post
 client.posts.delete("post-id")
+
+# Delete a post and also remove it from social platforms
+client.posts.delete("post-id", delete_on_platform: true)
+
+# Delete from platforms only (keeps DB record). Defaults to all platforms.
+client.posts.delete_on_platform("post-id")
+# Target a single network
+client.posts.delete_on_platform("post-id", network: "twitter")
+# Target a specific profile
+client.posts.delete_on_platform("post-id", profile_id: "prof-abc")
+# Target a specific post profile (covers entire thread for that profile)
+client.posts.delete_on_platform("post-id", post_profile_id: "pp-abc")
 ```
 
 ## Post Stats
