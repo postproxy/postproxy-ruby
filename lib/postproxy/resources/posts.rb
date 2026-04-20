@@ -38,6 +38,8 @@ module PostProxy
           form_data = { "post[body]" => body }
           form_data["post[scheduled_at]"] = format_time(scheduled_at) if scheduled_at
           form_data["post[draft]"] = draft.to_s if !draft.nil?
+          form_data["queue_id"] = queue_id if queue_id
+          form_data["queue_priority"] = queue_priority if queue_priority
 
           files = []
 
@@ -116,6 +118,8 @@ module PostProxy
           form_data["post[body]"] = body if body
           form_data["post[scheduled_at]"] = format_time(scheduled_at) if scheduled_at
           form_data["post[draft]"] = draft.to_s if !draft.nil?
+          form_data["queue_id"] = queue_id if queue_id
+          form_data["queue_priority"] = queue_priority if queue_priority
 
           files = []
 
