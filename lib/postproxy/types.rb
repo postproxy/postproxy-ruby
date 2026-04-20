@@ -330,6 +330,22 @@ module PostProxy
     attr_accessor :deleted
   end
 
+  class DeletingPlatform < Model
+    attr_accessor :post_profile_id, :platform
+  end
+
+  class DeleteOnPlatformResponse < Model
+    attr_accessor :success, :deleting
+
+    def initialize(**attrs)
+      @deleting = []
+      super
+      @deleting = (@deleting || []).map do |entry|
+        entry.is_a?(DeletingPlatform) ? entry : DeletingPlatform.new(**entry)
+      end
+    end
+  end
+
   class SuccessResponse < Model
     attr_accessor :success
   end

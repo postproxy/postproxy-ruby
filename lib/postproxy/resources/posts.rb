@@ -209,9 +209,26 @@ module PostProxy
         StatsResponse.new(data: posts)
       end
 
-      def delete(id, profile_group_id: nil)
-        result = @client.request(:delete, "/posts/#{id}", profile_group_id: profile_group_id)
+      def delete(id, delete_on_platform: nil, profile_group_id: nil)
+        params = {}
+        params[:delete_on_platform] = delete_on_platform unless delete_on_platform.nil?
+        result = @client.request(:delete, "/posts/#{id}",
+          params: params.empty? ? nil : params,
+          profile_group_id: profile_group_id
+        )
         DeleteResponse.new(**result)
+      end
+
+      def delete_on_platform(id, post_profile_id: nil, profile_id: nil, network: nil, profile_group_id: nil)
+        json_body = {}
+        json_body[:post_profile_id] = post_profile_id if post_profile_id
+        json_body[:profile_id] = profile_id if profile_id
+        json_body[:network] = network if network
+        result = @client.request(:post, "/posts/#{id}/delete_on_platform",
+          json: json_body.empty? ? nil : json_body,
+          profile_group_id: profile_group_id
+        )
+        DeleteOnPlatformResponse.new(**result)
       end
 
       private

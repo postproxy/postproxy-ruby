@@ -327,5 +327,77 @@ RSpec.describe PostProxy::Resources::Posts do
       expect(result).to be_a(PostProxy::DeleteResponse)
       expect(result.deleted).to be true
     end
+
+    it "passes delete_on_platform query param" do
+      stub = stub_api(:delete, "/posts/post-1",
+        body: { deleted: true },
+        query: { delete_on_platform: "true" }
+      )
+
+      result = client.posts.delete("post-1", delete_on_platform: true)
+      expect(result.deleted).to be true
+      expect(stub).to have_been_requested
+    end
+  end
+
+  describe "#delete_on_platform" do
+    it "deletes from all platforms with no params" do
+      stub = stub_request(:post, "#{BASE_URL}/api/posts/post-1/delete_on_platform")
+        .to_return(
+          status: 200,
+          body: {
+            success: true,
+            deleting: [{ post_profile_id: "pp-1", platform: "twitter" }]
+          }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      result = client.posts.delete_on_platform("post-1")
+      expect(result).to be_a(PostProxy::DeleteOnPlatformResponse)
+      expect(result.success).to be true
+      expect(result.deleting.length).to eq(1)
+      expect(result.deleting.first).to be_a(PostProxy::DeletingPlatform)
+      expect(result.deleting.first.platform).to eq("twitter")
+      expect(stub).to have_been_requested
+    end
+
+    it "filters by network" do
+      stub = stub_request(:post, "#{BASE_URL}/api/posts/post-1/delete_on_platform")
+        .with(body: { network: "twitter" }.to_json)
+        .to_return(
+          status: 200,
+          body: { success: true, deleting: [] }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      client.posts.delete_on_platform("post-1", network: "twitter")
+      expect(stub).to have_been_requested
+    end
+
+    it "filters by profile_id" do
+      stub = stub_request(:post, "#{BASE_URL}/api/posts/post-1/delete_on_platform")
+        .with(body: { profile_id: "prof-1" }.to_json)
+        .to_return(
+          status: 200,
+          body: { success: true, deleting: [] }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      client.posts.delete_on_platform("post-1", profile_id: "prof-1")
+      expect(stub).to have_been_requested
+    end
+
+    it "filters by post_profile_id" do
+      stub = stub_request(:post, "#{BASE_URL}/api/posts/post-1/delete_on_platform")
+        .with(body: { post_profile_id: "pp-1" }.to_json)
+        .to_return(
+          status: 200,
+          body: { success: true, deleting: [] }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+
+      client.posts.delete_on_platform("post-1", post_profile_id: "pp-1")
+      expect(stub).to have_been_requested
+    end
   end
 end
