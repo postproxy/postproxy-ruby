@@ -346,7 +346,8 @@ module PostProxy
   end
 
   class YouTubeParams < Model
-    attr_accessor :format, :title, :privacy_status, :cover_url, :made_for_kids
+    attr_accessor :format, :title, :privacy_status, :cover_url, :made_for_kids,
+                  :tags, :category_id, :contains_synthetic_media
   end
 
   class PinterestParams < Model
