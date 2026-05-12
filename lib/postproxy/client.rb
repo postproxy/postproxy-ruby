@@ -99,11 +99,16 @@ module PostProxy
 
     private
 
+    def user_agent
+      @user_agent ||= "postproxy-ruby/#{PostProxy::VERSION} (ruby/#{RUBY_VERSION})"
+    end
+
     def json_connection
       @faraday_client || Faraday.new(url: @base_url) do |f|
         f.request :url_encoded
         f.headers["Authorization"] = "Bearer #{@api_key}"
         f.headers["Content-Type"] = "application/json"
+        f.headers["User-Agent"] = user_agent
         f.adapter Faraday.default_adapter
       end
     end
@@ -112,6 +117,7 @@ module PostProxy
       @faraday_client || Faraday.new(url: @base_url) do |f|
         f.request :multipart
         f.headers["Authorization"] = "Bearer #{@api_key}"
+        f.headers["User-Agent"] = user_agent
         f.adapter Faraday.default_adapter
       end
     end

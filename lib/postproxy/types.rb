@@ -350,8 +350,58 @@ module PostProxy
     attr_accessor :success
   end
 
+  # OAuth-style connection response (facebook, instagram, twitter, etc.).
   class ConnectionResponse < Model
     attr_accessor :url, :success
+  end
+
+  # Alias for clarity at call sites; same shape as ConnectionResponse.
+  OAuthConnectionResponse = ConnectionResponse
+
+  class SyncProfile < Model
+    attr_accessor :id, :network, :name, :external_username
+  end
+
+  class BlueskyConnectionResponse < Model
+    attr_accessor :success, :profile
+
+    def initialize(**attrs)
+      @profile = nil
+      super
+      @profile = SyncProfile.new(**@profile.transform_keys(&:to_sym)) if @profile.is_a?(Hash)
+    end
+  end
+
+  class TelegramConnectionResponse < Model
+    attr_accessor :success, :profile, :next_step
+
+    def initialize(**attrs)
+      @profile = nil
+      @next_step = nil
+      super
+      @profile = SyncProfile.new(**@profile.transform_keys(&:to_sym)) if @profile.is_a?(Hash)
+    end
+  end
+
+  class ProfileStats < Model
+    attr_accessor :profile_id, :platform, :placement_id, :records
+
+    def initialize(**attrs)
+      @placement_id = nil
+      @records = []
+      super
+      @records = (@records || []).map do |r|
+        r.is_a?(StatsRecord) ? r : StatsRecord.new(**r.transform_keys(&:to_sym))
+      end
+    end
+  end
+
+  class ProfileStatsResponse
+    attr_reader :data
+
+    def initialize(data:)
+      @data = data.is_a?(ProfileStats) ? data : ProfileStats.new(**data.transform_keys(&:to_sym))
+    end
   end
 
   # Platform-specific parameter structs
@@ -392,13 +442,21 @@ module PostProxy
     attr_accessor :format
   end
 
+  class BlueskyParams < Model
+    attr_accessor :format
+  end
+
+  class TelegramParams < Model
+    attr_accessor :format, :chat_id, :parse_mode, :disable_link_preview, :disable_notification
+  end
+
   class PlatformParams < Model
     attr_accessor :facebook, :instagram, :tiktok, :linkedin, :youtube,
-                  :pinterest, :threads, :twitter
+                  :pinterest, :threads, :twitter, :bluesky, :telegram
 
     def to_h
       result = {}
-      %i[facebook instagram tiktok linkedin youtube pinterest threads twitter].each do |platform|
+      %i[facebook instagram tiktok linkedin youtube pinterest threads twitter bluesky telegram].each do |platform|
         value = send(platform)
         next if value.nil?
 

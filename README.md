@@ -260,6 +260,26 @@ PostProxy::WebhookSignature.verify(
 )
 ```
 
+### Event types and typed payloads
+
+Subscribe to any of these events (or pass `["*"]` for all):
+
+`post.processed`, `post.imported`, `platform_post.published`, `platform_post.failed`, `platform_post.failed_waiting_for_retry`, `platform_post.insights`, `profile.connected`, `profile.disconnected`, `profile.stats`, `media.failed`, `comment.created`.
+
+`PostProxy::WebhookEvents.parse` validates the envelope and returns a typed `Event` — `event.data` is the right model for the event:
+
+```ruby
+event = PostProxy::WebhookEvents.parse(request.body.read)
+case event.type
+when "profile.stats"
+  puts "#{event.data.profile_id}: #{event.data.stats}"
+when "platform_post.published"
+  puts "Published: #{event.data.platform_id}"
+when "comment.created"
+  puts "#{event.data.author_username}: #{event.data.body}"
+end
+```
+
 ## Comments
 
 ```ruby
@@ -311,6 +331,19 @@ placements = client.profiles.placements("prof-id").data
 
 # Delete a profile
 client.profiles.delete("prof-id")
+
+# Profile stats timeseries — placement_id required for facebook, linkedin, telegram
+stats = client.profiles.get_profile_stats("prof_li_001",
+  placement_id: "108520199",
+  from: "2026-04-01T00:00:00Z"
+)
+stats.data.records.each do |r|
+  puts "#{r.recorded_at}: #{r.stats[:followerCount]}"
+end
+
+# Bluesky — no placements
+bsky = client.profiles.get_profile_stats("prof_bsky_001")
+puts bsky.data.records.last.stats[:followersCount]
 ```
 
 ## Profile Groups
@@ -335,6 +368,28 @@ connection = client.profile_groups.initialize_connection(
   redirect_url: "https://myapp.com/callback"
 )
 # Redirect user to connection.url
+
+# BlueSky — app password (synchronous, no OAuth)
+bsky = client.profile_groups.connect_bluesky("pg-id",
+  identifier: "yourname.bsky.social",
+  app_password: "xxxx-xxxx-xxxx-xxxx"
+)
+puts bsky.profile.id
+
+# Telegram — bring-your-own-bot. Channels populate asynchronously; poll
+# placements until non-empty.
+tg = client.profile_groups.connect_telegram("pg-id",
+  bot_token: "123456789:ABCdef-GhIJklMnOpQrStUvWxYz"
+)
+puts tg.next_step
+
+placements = []
+loop do
+  placements = client.profiles.placements(tg.profile.id).data
+  break unless placements.empty?
+  sleep 3
+end
+puts "Channels: #{placements.map { |p| [p.id, p.name] }}"
 ```
 
 ## Platform Parameters
@@ -364,7 +419,13 @@ platforms = PostProxy::PlatformParams.new(
     board_id: "board-123"
   ),
   threads: PostProxy::ThreadsParams.new(format: "post"),
-  twitter: PostProxy::TwitterParams.new(format: "post")
+  twitter: PostProxy::TwitterParams.new(format: "post"),
+  bluesky: PostProxy::BlueskyParams.new(format: "post"),
+  telegram: PostProxy::TelegramParams.new(
+    chat_id: "-1001234567890",
+    parse_mode: "HTML",
+    disable_link_preview: true
+  )
 )
 
 post = client.posts.create(
@@ -373,6 +434,8 @@ post = client.posts.create(
   platforms: platforms
 )
 ```
+
+Supported platforms: `facebook`, `instagram`, `tiktok`, `linkedin`, `youtube`, `twitter`, `threads`, `pinterest`, `bluesky`, `telegram`. Telegram requires a `chat_id` per post — list channels with `client.profiles.placements(profile_id)`.
 
 ## Error Handling
 

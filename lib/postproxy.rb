@@ -4,6 +4,7 @@ require_relative "postproxy/errors"
 require_relative "postproxy/types"
 require_relative "postproxy/client"
 require_relative "postproxy/webhook_signature"
+require_relative "postproxy/webhook_events"
 
 module PostProxy
 end

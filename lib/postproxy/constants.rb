@@ -2,7 +2,7 @@ module PostProxy
   DEFAULT_BASE_URL = "https://api.postproxy.dev"
 
   PLATFORMS = %w[
-    facebook instagram tiktok linkedin youtube twitter threads pinterest
+    facebook instagram tiktok linkedin youtube twitter threads pinterest bluesky telegram
   ].freeze
 
   PROFILE_STATUSES = %w[active expired inactive].freeze
@@ -21,10 +21,28 @@ module PostProxy
   PINTEREST_FORMATS = %w[pin].freeze
   THREADS_FORMATS = %w[post].freeze
   TWITTER_FORMATS = %w[post].freeze
+  BLUESKY_FORMATS = %w[post].freeze
+  TELEGRAM_FORMATS = %w[post].freeze
 
   TIKTOK_PRIVACIES = %w[
     PUBLIC_TO_EVERYONE MUTUAL_FOLLOW_FRIENDS FOLLOWER_OF_CREATOR SELF_ONLY
   ].freeze
 
   YOUTUBE_PRIVACIES = %w[public unlisted private].freeze
+
+  TELEGRAM_PARSE_MODES = %w[HTML MarkdownV2].freeze
+
+  WEBHOOK_EVENT_TYPES = %w[
+    post.processed
+    post.imported
+    platform_post.published
+    platform_post.failed
+    platform_post.failed_waiting_for_retry
+    platform_post.insights
+    profile.connected
+    profile.disconnected
+    profile.stats
+    media.failed
+    comment.created
+  ].freeze
 end
