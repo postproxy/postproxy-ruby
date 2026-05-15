@@ -98,14 +98,31 @@ module PostProxy
     end
   end
 
+  class MediaPlatformError < Model
+    attr_accessor :platform, :status, :error, :error_details
+
+    def initialize(**attrs)
+      @error = nil
+      @error_details = nil
+      super
+      @error_details = ErrorDetails.new(**@error_details.transform_keys(&:to_sym)) if @error_details.is_a?(Hash)
+    end
+  end
+
   class Media < Model
-    attr_accessor :id, :status, :error_message, :content_type, :source_url, :url
+    attr_accessor :id, :status, :error_message, :content_type, :source_url, :url, :platforms
 
     def initialize(**attrs)
       @error_message = nil
       @source_url = nil
       @url = nil
+      @platforms = nil
       super
+      if @platforms.is_a?(Array)
+        @platforms = @platforms.map do |p|
+          p.is_a?(MediaPlatformError) ? p : MediaPlatformError.new(**p.transform_keys(&:to_sym))
+        end
+      end
     end
   end
 
@@ -322,6 +339,33 @@ module PostProxy
     end
   end
 
+  class ProfileComment < Model
+    attr_accessor :id, :external_id, :parent_external_id, :placement_id,
+                  :body, :status, :author_username, :author_avatar_url,
+                  :platform_data, :posted_at, :created_at, :replies
+
+    def initialize(**attrs)
+      @parent_external_id = nil
+      @author_username = nil
+      @author_avatar_url = nil
+      @platform_data = nil
+      @replies = []
+      super
+      @posted_at = parse_time(@posted_at)
+      @created_at = parse_time(@created_at)
+      @replies = (@replies || []).map do |r|
+        r.is_a?(ProfileComment) ? r : ProfileComment.new(**r.transform_keys(&:to_sym))
+      end
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
   class AcceptedResponse < Model
     attr_accessor :accepted
   end
@@ -452,11 +496,11 @@ module PostProxy
 
   class PlatformParams < Model
     attr_accessor :facebook, :instagram, :tiktok, :linkedin, :youtube,
-                  :pinterest, :threads, :twitter, :bluesky, :telegram
+                  :pinterest, :threads, :twitter, :bluesky, :telegram, :google_business
 
     def to_h
       result = {}
-      %i[facebook instagram tiktok linkedin youtube pinterest threads twitter bluesky telegram].each do |platform|
+      %i[facebook instagram tiktok linkedin youtube pinterest threads twitter bluesky telegram google_business].each do |platform|
         value = send(platform)
         next if value.nil?
 

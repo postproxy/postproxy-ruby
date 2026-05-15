@@ -317,6 +317,32 @@ client.comments.like("post-id", "comment-id", profile_id: "profile-id")
 client.comments.unlike("post-id", "comment-id", profile_id: "profile-id")
 ```
 
+## Profile comments (Google Business reviews)
+
+Profile-level comments expose Google Business reviews and replies. Reviews are user-generated — the SDK lets you list/get them and reply to or delete your own replies. Reviews sync twice daily.
+
+```ruby
+# List reviews for a profile (paginated)
+reviews = client.profile_comments.list("profile-id")
+reviews.data.each do |review|
+  rating = (review.platform_data || {})[:star_rating]
+  puts "#{review.author_username} #{rating}: #{review.body}"
+  review.replies.each { |r| puts "  reply: #{r.body}" }
+end
+
+# Filter by placement (location)
+reviews = client.profile_comments.list("profile-id", placement_id: "accounts/123/locations/456")
+
+# Get a single review
+review = client.profile_comments.get("profile-id", "review-id")
+
+# Reply to a review (parent_id is the review id)
+reply = client.profile_comments.create("profile-id", parent_id: "review-id", text: "Thanks for visiting!")
+
+# Delete your reply
+client.profile_comments.delete("profile-id", "reply-id")
+```
+
 ## Profiles
 
 ```ruby
@@ -435,7 +461,27 @@ post = client.posts.create(
 )
 ```
 
-Supported platforms: `facebook`, `instagram`, `tiktok`, `linkedin`, `youtube`, `twitter`, `threads`, `pinterest`, `bluesky`, `telegram`. Telegram requires a `chat_id` per post — list channels with `client.profiles.placements(profile_id)`.
+Supported platforms: `facebook`, `instagram`, `tiktok`, `linkedin`, `youtube`, `twitter`, `threads`, `pinterest`, `bluesky`, `telegram`, `google_business`. Telegram requires a `chat_id` per post — list channels with `client.profiles.placements(profile_id)`.
+
+### Google Business
+
+Google Business posts use a `google_business` entry in `PlatformParams` (a plain hash; no typed struct). The `location_id` is the location resource path returned by `client.profiles.placements()`. Supported formats: `standard`, `event`, `offer`. CTA actions: `LEARN_MORE`, `BOOK`, `ORDER`, `SHOP`, `SIGN_UP`, `CALL`. Media is limited to one image (≤5 MB).
+
+```ruby
+client.posts.create(
+  "Now open weekends!",
+  ["gbp-profile-id"],
+  media: ["https://example.com/store.jpg"],
+  platforms: {
+    google_business: {
+      format: "standard",
+      location_id: "accounts/123/locations/456",
+      cta_action_type: "LEARN_MORE",
+      cta_url: "https://example.com"
+    }
+  }
+)
+```
 
 ## Error Handling
 

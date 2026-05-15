@@ -2,7 +2,7 @@ module PostProxy
   DEFAULT_BASE_URL = "https://api.postproxy.dev"
 
   PLATFORMS = %w[
-    facebook instagram tiktok linkedin youtube twitter threads pinterest bluesky telegram
+    facebook instagram tiktok linkedin youtube twitter threads pinterest bluesky telegram google_business
   ].freeze
 
   PROFILE_STATUSES = %w[active expired inactive].freeze
