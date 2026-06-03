@@ -141,6 +141,71 @@ RSpec.describe "PostProxy types" do
     end
   end
 
+  describe PostProxy::Attachment do
+    it "parses attachment attributes" do
+      att = PostProxy::Attachment.new(id: "att_1", type: "image",
+        url: "https://cdn.example.com/a.jpg", status: "processed", external_id: nil)
+      expect(att.id).to eq("att_1")
+      expect(att.type).to eq("image")
+      expect(att.status).to eq("processed")
+      expect(att.external_id).to be_nil
+    end
+  end
+
+  describe PostProxy::Reaction do
+    it "parses reaction attributes and timestamp" do
+      reaction = PostProxy::Reaction.new(sender_external_id: "psid_1",
+        emoji: "❤️", reaction: "love", at: "2026-05-31T14:04:00Z")
+      expect(reaction.sender_external_id).to eq("psid_1")
+      expect(reaction.reaction).to eq("love")
+      expect(reaction.at).to be_a(Time)
+    end
+  end
+
+  describe PostProxy::Chat do
+    it "parses chat attributes and timestamps; archived is optional" do
+      chat = PostProxy::Chat.new(
+        id: "chat_1", profile_id: "prof_1", platform: "instagram",
+        participant_external_id: "igsid_1",
+        last_message_at: "2026-05-31T15:10:00Z",
+        metadata: { follower_count: 10 },
+        created_at: "2026-04-12T08:00:00Z"
+      )
+      expect(chat.id).to eq("chat_1")
+      expect(chat.last_message_at).to be_a(Time)
+      expect(chat.created_at).to be_a(Time)
+      expect(chat.metadata[:follower_count]).to eq(10)
+      expect(chat.archived).to be_nil
+    end
+  end
+
+  describe PostProxy::Message do
+    it "parses message with nested reactions and attachments" do
+      msg = PostProxy::Message.new(
+        id: "msg_1", chat_id: "chat_1", direction: "inbound",
+        body: "hi", status: "received",
+        external_posted_at: "2026-05-31T14:02:00Z",
+        reactions: [{ sender_external_id: "psid_1", reaction: "love", at: "2026-05-31T14:04:00Z" }],
+        attachments: [{ id: "att_1", type: "image", url: "u", status: "processed" }],
+        created_at: "2026-05-31T14:02:01Z"
+      )
+      expect(msg.direction).to eq("inbound")
+      expect(msg.external_posted_at).to be_a(Time)
+      expect(msg.created_at).to be_a(Time)
+      expect(msg.reactions.first).to be_a(PostProxy::Reaction)
+      expect(msg.attachments.first).to be_a(PostProxy::Attachment)
+      expect(msg.is_unsupported).to be false
+    end
+
+    it "defaults reactions and attachments to empty arrays" do
+      msg = PostProxy::Message.new(id: "m", chat_id: "c", direction: "outbound",
+        status: "pending", created_at: "2026-05-31T14:02:01Z")
+      expect(msg.reactions).to eq([])
+      expect(msg.attachments).to eq([])
+      expect(msg.body).to be_nil
+    end
+  end
+
   describe PostProxy::PlatformParams do
     it "serializes platform params excluding nil values" do
       params = PostProxy::PlatformParams.new(

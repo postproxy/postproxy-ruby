@@ -8,6 +8,8 @@ require_relative "resources/webhooks"
 require_relative "resources/queues"
 require_relative "resources/comments"
 require_relative "resources/profile_comments"
+require_relative "resources/chats"
+require_relative "resources/messages"
 
 module PostProxy
   class Client
@@ -25,6 +27,8 @@ module PostProxy
       @queues = nil
       @comments = nil
       @profile_comments = nil
+      @chats = nil
+      @messages = nil
     end
 
     def posts
@@ -53,6 +57,14 @@ module PostProxy
 
     def profile_comments
       @profile_comments ||= Resources::ProfileComments.new(self)
+    end
+
+    def chats
+      @chats ||= Resources::Chats.new(self)
+    end
+
+    def messages
+      @messages ||= Resources::Messages.new(self)
     end
 
     def request(method, path, params: nil, json: nil, data: nil, files: nil, profile_group_id: nil)

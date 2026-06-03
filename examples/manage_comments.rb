@@ -40,6 +40,19 @@ puts "Comment liked"
 client.comments.unlike(post_id, new_comment.id, profile_id: profile_id)
 puts "Comment unliked"
 
+# Synced comments may carry media attachments and author metadata
+fetched = client.comments.get(post_id, new_comment.id, profile_id: profile_id)
+fetched.attachments.each { |att| puts "  attachment: #{att.type} -> #{att.url} (#{att.status})" }
+puts "  follower_count: #{(fetched.metadata || {})[:follower_count]}" if fetched.metadata
+
+# Private reply to a comment's author (Instagram/Facebook) — returns a Message
+message = client.comments.private_reply(
+  post_id, new_comment.id,
+  profile_id: profile_id,
+  text: "Thanks — DM-ing you the details."
+)
+puts "Private reply queued: #{message.id} (chat: #{message.chat_id})"
+
 # Delete
 client.comments.delete(post_id, new_comment.id, profile_id: profile_id)
 puts "Comment deleted"

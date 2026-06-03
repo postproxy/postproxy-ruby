@@ -82,6 +82,56 @@ RSpec.describe PostProxy::WebhookEvents do
     expect(event.data.author_name).to eq("Jane")
   end
 
+  def mock_message(overrides = {})
+    {
+      id: "msg_1", chat_id: "chat_1", external_id: "mid.1", direction: "inbound",
+      body: "hi", status: "received", reactions: [], attachments: [],
+      is_unsupported: false, created_at: "2026-06-01T00:00:00Z"
+    }.merge(overrides)
+  end
+
+  %w[message.received message.sent message.delivered message.read
+     message.edited message.deleted message.failed_waiting_for_retry message.failed].each do |type|
+    it "parses #{type}" do
+      event = described_class.parse(envelope(type, { message: mock_message }).to_json)
+      expect(event.type).to eq(type)
+      expect(event.data).to be_a(PostProxy::WebhookEvents::MessageEventData)
+      expect(event.data.message).to be_a(PostProxy::Message)
+      expect(event.data.message.id).to eq("msg_1")
+    end
+  end
+
+  it "parses reaction.received" do
+    event = described_class.parse(envelope("reaction.received", {
+      message: mock_message(reactions: [
+        { sender_external_id: "psid_123", emoji: "❤️", reaction: "love", at: "2026-06-01T15:02:00Z" }
+      ]),
+      sender_external_id: "psid_123",
+      action: "react",
+      reaction: "love",
+      emoji: "❤️",
+      occurred_at: "2026-06-01T15:02:00Z"
+    }).to_json)
+    expect(event.data).to be_a(PostProxy::WebhookEvents::ReactionEventData)
+    expect(event.data.action).to eq("react")
+    expect(event.data.message).to be_a(PostProxy::Message)
+    expect(event.data.message.reactions.first.reaction).to eq("love")
+  end
+
+  it "parses profile_comment.created" do
+    event = described_class.parse(envelope("profile_comment.created", {
+      id: "abc123", profile_id: "prof123", platform: "google_business",
+      placement_id: "accounts/1/locations/2",
+      external_id: "accounts/1/locations/2/reviews/A", parent_external_id: nil,
+      body: "Great coffee!", status: "synced", author_username: "Jane D.",
+      author_avatar_url: nil, platform_data: { star_rating: 5 },
+      posted_at: "2026-05-10T11:55:00Z", created_at: "2026-05-13T18:00:00Z"
+    }).to_json)
+    expect(event.data).to be_a(PostProxy::WebhookEvents::ProfileCommentCreatedData)
+    expect(event.data.author_username).to eq("Jane D.")
+    expect(event.data.platform_data[:star_rating]).to eq(5)
+  end
+
   it "accepts a Hash body" do
     event = described_class.parse(envelope("media.failed", {
       id: "m1", post_id: "p1", content_type: "image/jpeg",

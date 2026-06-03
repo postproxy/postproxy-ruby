@@ -32,6 +32,10 @@ module PostProxy
 
   TELEGRAM_PARSE_MODES = %w[HTML MarkdownV2].freeze
 
+  MESSAGE_DIRECTIONS = %w[inbound outbound].freeze
+
+  MESSAGE_STATUSES = %w[pending published failed_waiting_for_retry failed received].freeze
+
   WEBHOOK_EVENT_TYPES = %w[
     post.processed
     post.imported
@@ -44,5 +48,15 @@ module PostProxy
     profile.stats
     media.failed
     comment.created
+    profile_comment.created
+    message.received
+    message.sent
+    message.delivered
+    message.read
+    message.edited
+    message.deleted
+    message.failed_waiting_for_retry
+    message.failed
+    reaction.received
   ].freeze
 end

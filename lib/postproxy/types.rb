@@ -307,27 +307,140 @@ module PostProxy
     end
   end
 
+  class Attachment < Model
+    attr_accessor :id, :type, :url, :status, :external_id
+
+    def initialize(**attrs)
+      @url = nil
+      @external_id = nil
+      super
+    end
+  end
+
+  class Reaction < Model
+    attr_accessor :sender_external_id, :emoji, :reaction, :at
+
+    def initialize(**attrs)
+      @emoji = nil
+      @reaction = nil
+      @at = nil
+      super
+      @at = parse_time(@at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
   class Comment < Model
     attr_accessor :id, :external_id, :body, :status, :author_username,
-                  :author_avatar_url, :author_external_id, :parent_external_id,
-                  :like_count, :is_hidden, :permalink, :platform_data,
-                  :posted_at, :created_at, :replies
+                  :author_avatar_url, :author_external_id, :metadata,
+                  :parent_external_id, :like_count, :is_hidden, :permalink,
+                  :platform_data, :attachments, :posted_at, :created_at, :replies
 
     def initialize(**attrs)
       @external_id = nil
       @author_avatar_url = nil
       @author_external_id = nil
+      @metadata = nil
       @parent_external_id = nil
       @like_count = 0
       @is_hidden = false
       @permalink = nil
       @platform_data = nil
+      @attachments = []
       @replies = []
       super
       @posted_at = parse_time(@posted_at)
       @created_at = parse_time(@created_at)
+      @attachments = (@attachments || []).map do |a|
+        a.is_a?(Attachment) ? a : Attachment.new(**a.transform_keys(&:to_sym))
+      end
       @replies = (@replies || []).map do |r|
         r.is_a?(Comment) ? r : Comment.new(**r.transform_keys(&:to_sym))
+      end
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
+  class Chat < Model
+    attr_accessor :id, :profile_id, :platform, :participant_external_id,
+                  :participant_username, :participant_name, :participant_avatar_url,
+                  :external_conversation_id, :last_inbound_at, :last_outbound_at,
+                  :last_message_at, :metadata, :archived, :created_at
+
+    def initialize(**attrs)
+      @participant_username = nil
+      @participant_name = nil
+      @participant_avatar_url = nil
+      @external_conversation_id = nil
+      @last_inbound_at = nil
+      @last_outbound_at = nil
+      @last_message_at = nil
+      @metadata = nil
+      @archived = nil
+      super
+      @last_inbound_at = parse_time(@last_inbound_at)
+      @last_outbound_at = parse_time(@last_outbound_at)
+      @last_message_at = parse_time(@last_message_at)
+      @created_at = parse_time(@created_at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
+  class Message < Model
+    attr_accessor :id, :chat_id, :external_id, :direction, :body, :status,
+                  :tag, :external_comment_id, :error_message, :platform_data,
+                  :external_posted_at, :external_delivered_at, :external_read_at,
+                  :external_edited_at, :reply_to_external_id, :reply_markup,
+                  :external_deleted_at, :reactions, :attachments,
+                  :is_unsupported, :created_at
+
+    def initialize(**attrs)
+      @external_id = nil
+      @body = nil
+      @tag = nil
+      @external_comment_id = nil
+      @error_message = nil
+      @platform_data = nil
+      @external_posted_at = nil
+      @external_delivered_at = nil
+      @external_read_at = nil
+      @external_edited_at = nil
+      @reply_to_external_id = nil
+      @reply_markup = nil
+      @external_deleted_at = nil
+      @reactions = []
+      @attachments = []
+      @is_unsupported = false
+      super
+      @external_posted_at = parse_time(@external_posted_at)
+      @external_delivered_at = parse_time(@external_delivered_at)
+      @external_read_at = parse_time(@external_read_at)
+      @external_edited_at = parse_time(@external_edited_at)
+      @external_deleted_at = parse_time(@external_deleted_at)
+      @created_at = parse_time(@created_at)
+      @reactions = (@reactions || []).map do |r|
+        r.is_a?(Reaction) ? r : Reaction.new(**r.transform_keys(&:to_sym))
+      end
+      @attachments = (@attachments || []).map do |a|
+        a.is_a?(Attachment) ? a : Attachment.new(**a.transform_keys(&:to_sym))
       end
     end
 

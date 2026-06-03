@@ -264,7 +264,7 @@ PostProxy::WebhookSignature.verify(
 
 Subscribe to any of these events (or pass `["*"]` for all):
 
-`post.processed`, `post.imported`, `platform_post.published`, `platform_post.failed`, `platform_post.failed_waiting_for_retry`, `platform_post.insights`, `profile.connected`, `profile.disconnected`, `profile.stats`, `media.failed`, `comment.created`.
+`post.processed`, `post.imported`, `platform_post.published`, `platform_post.failed`, `platform_post.failed_waiting_for_retry`, `platform_post.insights`, `profile.connected`, `profile.disconnected`, `profile.stats`, `media.failed`, `comment.created`, `profile_comment.created`, `message.received`, `message.sent`, `message.delivered`, `message.read`, `message.edited`, `message.deleted`, `message.failed_waiting_for_retry`, `message.failed`, `reaction.received`.
 
 `PostProxy::WebhookEvents.parse` validates the envelope and returns a typed `Event` — `event.data` is the right model for the event:
 
@@ -277,8 +277,19 @@ when "platform_post.published"
   puts "Published: #{event.data.platform_id}"
 when "comment.created"
   puts "#{event.data.author_username}: #{event.data.body}"
+when "message.received"
+  # MessageEventData — event.data.message is a full Message
+  puts "DM from #{event.data.message.chat_id}: #{event.data.message.body}"
+when "reaction.received"
+  # ReactionEventData
+  puts "#{event.data.action}: #{event.data.reaction} on #{event.data.message.id}"
+when "profile_comment.created"
+  # ProfileCommentCreatedData
+  puts "#{event.data.author_username}: #{event.data.body}"
 end
 ```
+
+The direct-message events (`message.*`) carry a `MessageEventData` (`data.message` is a full `Message`); `reaction.received` carries a `ReactionEventData`; `profile_comment.created` carries a `ProfileCommentCreatedData`.
 
 ## Comments
 
@@ -315,6 +326,71 @@ client.comments.unhide("post-id", "comment-id", profile_id: "profile-id")
 # Like / unlike a comment
 client.comments.like("post-id", "comment-id", profile_id: "profile-id")
 client.comments.unlike("post-id", "comment-id", profile_id: "profile-id")
+
+# Synced comments may carry media attachments and author metadata
+comment = client.comments.get("post-id", "comment-id", profile_id: "profile-id")
+comment.attachments.each { |att| puts "#{att.type} #{att.url} (#{att.status})" }
+puts comment.metadata[:follower_count] if comment.metadata
+
+# Private reply to a comment's author (Instagram/Facebook) — returns a Message
+message = client.comments.private_reply("post-id", "comment-id", profile_id: "profile-id", text: "DM-ing you the details.")
+puts message.chat_id, message.status
+```
+
+## Direct Messages
+
+Read and send 1:1 messages on DM-capable profiles (Facebook Messenger, Instagram, Telegram, Bluesky). A conversation is a **Chat**; it holds **Messages**. Outbound sends are processed asynchronously (`status` starts as `pending`).
+
+```ruby
+# List chats for a profile (paginated, most recent first)
+chats = client.chats.list("profile-id", per_page: 20)
+chats.data.each { |chat| puts "#{chat.participant_username}: #{chat.last_message_at}" }
+
+# Find or create a chat with a participant (idempotent)
+chat = client.chats.create("profile-id", "igsid_8675309", participant_username: "jane_doe")
+
+# Get a single chat
+chat = client.chats.get(chat.id)
+
+# List messages in a chat (filter by direction/status)
+messages = client.messages.list(chat.id, direction: "inbound")
+messages.data.each do |msg|
+  puts "#{msg.direction}: #{msg.body}"
+  msg.attachments.each { |att| puts "  #{att.url}" }
+end
+
+# Send a text message (within the 24h window)
+sent = client.messages.send(chat.id, body: "Yes, we ship worldwide!")
+
+# Send outside the 24h window with a tag (Facebook/Instagram)
+client.messages.send(chat.id, body: "Following up.", tag: "HUMAN_AGENT")
+
+# Send media — by hosted URL or local file
+client.messages.send(chat.id, media: ["https://cdn.example.com/photo.png"])
+client.messages.send(chat.id, media_files: ["./photo.png"])
+
+# Telegram: reply threading + inline keyboard
+client.messages.send(
+  chat.id,
+  body: "Pick one:",
+  reply_markup: { inline_keyboard: [[{ text: "Track order", callback_data: "track:1" }]] }
+)
+
+# Get / edit (Telegram only) a message
+msg = client.messages.get(sent.id)
+client.messages.edit(sent.id, body: "Updated answer.")
+
+# React / unreact (Facebook & Instagram)
+client.messages.react(sent.id, reaction: "love", emoji: "❤️")
+client.messages.unreact(sent.id)
+
+# Archive / unarchive a chat (Bluesky only)
+client.chats.archive(chat.id)
+client.chats.unarchive(chat.id)
+
+# Private reply to a comment's author (Instagram/Facebook) — returns a Message
+message = client.comments.private_reply("post-id", "comment-id", profile_id: "profile-id", text: "DM-ing you the details.")
+puts message.chat_id, message.status
 ```
 
 ## Profile comments (Google Business reviews)

@@ -57,6 +57,14 @@ module PostProxy
         result = @client.request(:post, "/posts/#{post_id}/comments/#{comment_id}/unlike", params: { profile_id: profile_id })
         AcceptedResponse.new(**result)
       end
+
+      def private_reply(post_id, comment_id, profile_id:, text:)
+        result = @client.request(:post, "/posts/#{post_id}/comments/#{comment_id}/private_reply",
+          params: { profile_id: profile_id },
+          json: { text: text }
+        )
+        Message.new(**result)
+      end
     end
   end
 end

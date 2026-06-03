@@ -71,6 +71,35 @@ module PostProxy
                     :platform_data, :posted_at, :created_at
     end
 
+    class MessageEventData < Model
+      attr_accessor :message
+
+      def initialize(**attrs)
+        @message = nil
+        super
+        @message = Message.new(**@message.transform_keys(&:to_sym)) if @message.is_a?(Hash)
+      end
+    end
+
+    class ReactionEventData < Model
+      attr_accessor :message, :sender_external_id, :action, :reaction, :emoji, :occurred_at
+
+      def initialize(**attrs)
+        @message = nil
+        @reaction = nil
+        @emoji = nil
+        @occurred_at = nil
+        super
+        @message = Message.new(**@message.transform_keys(&:to_sym)) if @message.is_a?(Hash)
+      end
+    end
+
+    class ProfileCommentCreatedData < Model
+      attr_accessor :id, :profile_id, :platform, :placement_id, :external_id,
+                    :parent_external_id, :body, :status, :author_username,
+                    :author_avatar_url, :platform_data, :posted_at, :created_at
+    end
+
     DATA_CLASSES = {
       "post.processed" => PostProcessedData,
       "post.imported" => PostImportedData,
@@ -82,7 +111,17 @@ module PostProxy
       "profile.disconnected" => ProfileEventData,
       "profile.stats" => ProfileStatsData,
       "media.failed" => MediaFailedData,
-      "comment.created" => CommentCreatedData
+      "comment.created" => CommentCreatedData,
+      "profile_comment.created" => ProfileCommentCreatedData,
+      "message.received" => MessageEventData,
+      "message.sent" => MessageEventData,
+      "message.delivered" => MessageEventData,
+      "message.read" => MessageEventData,
+      "message.edited" => MessageEventData,
+      "message.deleted" => MessageEventData,
+      "message.failed_waiting_for_retry" => MessageEventData,
+      "message.failed" => MessageEventData,
+      "reaction.received" => ReactionEventData
     }.freeze
 
     # Parse a webhook body and return a typed Event. `data` is parsed into the

@@ -177,4 +177,63 @@ RSpec.describe PostProxy::Resources::Comments do
       expect(result.accepted).to be true
     end
   end
+
+  describe "attachments and metadata" do
+    it "parses attachments into Attachment models and exposes metadata" do
+      comment = mock_comment.merge(
+        metadata: { follower_count: 482, is_verified: true },
+        attachments: [
+          { id: "att_1", type: "image", url: "https://cdn.example.com/a.jpg", status: "processed", external_id: nil }
+        ]
+      )
+      stub_api(:get, "/posts/#{post_id}/comments/#{comment_id}",
+        body: comment,
+        query: { profile_id: profile_id })
+
+      result = client.comments.get(post_id, comment_id, profile_id: profile_id)
+      expect(result.metadata[:follower_count]).to eq(482)
+      expect(result.attachments.length).to eq(1)
+      expect(result.attachments.first).to be_a(PostProxy::Attachment)
+      expect(result.attachments.first.type).to eq("image")
+      expect(result.attachments.first.status).to eq("processed")
+    end
+
+    it "defaults attachments to an empty array" do
+      result = PostProxy::Comment.new(id: "c1", body: "hi", status: "synced", created_at: "2026-03-25T10:00:00Z")
+      expect(result.attachments).to eq([])
+      expect(result.metadata).to be_nil
+    end
+  end
+
+  describe "#private_reply" do
+    let(:mock_message) do
+      {
+        id: "msg_222",
+        chat_id: "chat_xyz789",
+        external_id: nil,
+        direction: "outbound",
+        body: "DM-ing you the details.",
+        status: "pending",
+        external_comment_id: "17858893269123456",
+        reactions: [],
+        attachments: [],
+        is_unsupported: false,
+        created_at: "2026-05-31T15:30:05.000Z",
+      }
+    end
+
+    it "sends a private reply and returns a Message" do
+      stub_api(:post, "/posts/#{post_id}/comments/#{comment_id}/private_reply",
+        body: mock_message,
+        query: { profile_id: profile_id })
+
+      msg = client.comments.private_reply(post_id, comment_id, profile_id: profile_id, text: "DM-ing you the details.")
+      expect(msg).to be_a(PostProxy::Message)
+      expect(msg.id).to eq("msg_222")
+      expect(msg.external_comment_id).to eq("17858893269123456")
+
+      expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/posts/#{post_id}/comments/#{comment_id}/private_reply?profile_id=#{profile_id}")
+        .with { |req| JSON.parse(req.body)["text"] == "DM-ing you the details." }
+    end
+  end
 end
