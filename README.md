@@ -431,6 +431,24 @@ profile = client.profiles.get("prof-id")
 # Get placements for a profile
 placements = client.profiles.placements("prof-id").data
 
+# Move a placement (e.g. a Facebook Page or Telegram channel) to another group
+placement = client.profiles.assign_placement_to_group("prof-id",
+  placement_id: "placement-external-id",
+  target_profile_group_id: "pg-other"
+)
+puts placement.profile_group_id # => "pg-other"
+
+# Ice breakers (Instagram DMs): FAQ prompts shown when a user opens a chat
+result = client.profiles.ice_breakers("prof-id")
+puts result.ice_breakers.map(&:question)
+
+client.profiles.set_ice_breakers("prof-id", [
+  { question: "What services do you offer?", payload: "services" },
+  { question: "What are your hours?", payload: "hours" }
+]) # 1-4 items
+
+client.profiles.delete_ice_breakers("prof-id")
+
 # Delete a profile
 client.profiles.delete("prof-id")
 
@@ -521,6 +539,9 @@ platforms = PostProxy::PlatformParams.new(
     board_id: "board-123"
   ),
   threads: PostProxy::ThreadsParams.new(format: "post"),
+  # Twitter also supports polls:
+  # twitter: PostProxy::TwitterParams.new(format: "poll",
+  #   poll_options: ["Yes", "No"], poll_duration_minutes: 1440),
   twitter: PostProxy::TwitterParams.new(format: "post"),
   bluesky: PostProxy::BlueskyParams.new(format: "post"),
   telegram: PostProxy::TelegramParams.new(

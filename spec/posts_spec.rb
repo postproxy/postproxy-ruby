@@ -121,6 +121,34 @@ RSpec.describe PostProxy::Resources::Posts do
             body[:platforms][:facebook][:first_comment] == "Hi!"
         }
     end
+
+    it "includes twitter poll params" do
+      stub_api(:post, "/posts", body: {
+        id: "post-poll",
+        body: "Which framework?",
+        status: "pending",
+        created_at: "2025-01-01T00:00:00Z",
+        platforms: []
+      })
+
+      platforms = PostProxy::PlatformParams.new(
+        twitter: PostProxy::TwitterParams.new(
+          format: "poll",
+          poll_options: ["Rails", "Django", "Laravel"],
+          poll_duration_minutes: 1440
+        )
+      )
+
+      client.posts.create("Which framework?", profiles: ["prof-1"], platforms: platforms)
+
+      expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/posts")
+        .with { |req|
+          body = JSON.parse(req.body, symbolize_names: true)
+          body[:platforms][:twitter][:format] == "poll" &&
+            body[:platforms][:twitter][:poll_options] == %w[Rails Django Laravel] &&
+            body[:platforms][:twitter][:poll_duration_minutes] == 1440
+        }
+    end
   end
 
   describe "#stats" do

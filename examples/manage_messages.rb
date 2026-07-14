@@ -67,3 +67,12 @@ reply = client.comments.private_reply(
   text: "Thanks — DM-ing you the details."
 )
 puts "Private reply queued: #{reply.id} (chat: #{reply.chat_id})"
+
+# Ice breakers (Instagram only): FAQ prompts shown when a user opens a chat
+client.profiles.set_ice_breakers(profile_id, [
+  { question: "What services do you offer?", payload: "services" },
+  { question: "What are your hours?", payload: "hours" }
+])
+result = client.profiles.ice_breakers(profile_id)
+puts "Ice breakers: #{result.ice_breakers.map(&:question)}"
+# client.profiles.delete_ice_breakers(profile_id)

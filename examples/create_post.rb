@@ -69,3 +69,17 @@ thread_post = client.posts.create(
   ]
 )
 puts "Thread post: #{thread_post.id} (#{thread_post.thread.length} children)"
+
+# Twitter poll: 2-4 options (max 25 chars each), 5-10080 minutes
+poll_post = client.posts.create(
+  "Which framework?",
+  profiles: [twitter_profile.id],
+  platforms: PostProxy::PlatformParams.new(
+    twitter: PostProxy::TwitterParams.new(
+      format: "poll",
+      poll_options: ["Rails", "Django", "Laravel", "Other"],
+      poll_duration_minutes: 1440
+    )
+  )
+)
+puts "Poll post: #{poll_post.id}"

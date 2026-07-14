@@ -61,6 +61,61 @@ RSpec.describe PostProxy::Resources::Profiles do
     end
   end
 
+  describe "#assign_placement_to_group" do
+    it "moves a placement to another group" do
+      stub = stub_api(:patch, "/profiles/prof-1/assign_placement_to_group", body: {
+        id: "pl-1", name: "Feed", metadata: {}, profile_group_id: "pg-2"
+      })
+
+      result = client.profiles.assign_placement_to_group(
+        "prof-1",
+        placement_id: "pl-1",
+        target_profile_group_id: "pg-2"
+      )
+      expect(result).to be_a(PostProxy::Placement)
+      expect(result.profile_group_id).to eq("pg-2")
+      expect(stub.with(
+        body: { placement_id: "pl-1", target_profile_group_id: "pg-2" }.to_json
+      )).to have_been_requested
+    end
+  end
+
+  describe "#ice_breakers" do
+    it "lists ice breakers" do
+      stub_api(:get, "/profiles/prof-1/ice_breakers", body: {
+        ice_breakers: [{ question: "What do you do?", payload: "services" }]
+      })
+
+      result = client.profiles.ice_breakers("prof-1")
+      expect(result).to be_a(PostProxy::IceBreakersResponse)
+      expect(result.ice_breakers.length).to eq(1)
+      expect(result.ice_breakers.first.question).to eq("What do you do?")
+    end
+  end
+
+  describe "#set_ice_breakers" do
+    it "sets ice breakers" do
+      stub = stub_api(:post, "/profiles/prof-1/ice_breakers", body: { success: true })
+
+      result = client.profiles.set_ice_breakers("prof-1", [
+        { question: "What do you do?", payload: "services" }
+      ])
+      expect(result.success).to be true
+      expect(stub.with(
+        body: { ice_breakers: [{ question: "What do you do?", payload: "services" }] }.to_json
+      )).to have_been_requested
+    end
+  end
+
+  describe "#delete_ice_breakers" do
+    it "deletes ice breakers" do
+      stub_api(:delete, "/profiles/prof-1/ice_breakers", body: { success: true })
+
+      result = client.profiles.delete_ice_breakers("prof-1")
+      expect(result.success).to be true
+    end
+  end
+
   describe "#delete" do
     it "deletes a profile" do
       stub_api(:delete, "/profiles/prof-1", body: { success: true })

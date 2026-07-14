@@ -18,3 +18,15 @@ connection = client.profile_groups.initialize_connection(
 )
 
 puts "Redirect user to: #{connection.url}"
+
+# After connecting, list a profile's placements (Pages, channels, locations)
+placements = client.profiles.placements("profile-id").data
+puts "Placements: #{placements.map { |p| [p.id, p.name] }}"
+
+# Move one placement to a different profile group
+unless placements.empty?
+  client.profiles.assign_placement_to_group("profile-id",
+    placement_id: placements.first.id,
+    target_profile_group_id: "other-group-id"
+  )
+end

@@ -36,6 +36,41 @@ module PostProxy
         ProfileStatsResponse.new(data: result[:data])
       end
 
+      # Moves a placement (e.g. a Facebook Page or Telegram channel) to another
+      # profile group. `placement_id` is the placement's external ID as
+      # returned by #placements.
+      def assign_placement_to_group(id, placement_id:, target_profile_group_id:, profile_group_id: nil)
+        result = @client.request(:patch, "/profiles/#{id}/assign_placement_to_group",
+          json: {
+            placement_id: placement_id,
+            target_profile_group_id: target_profile_group_id
+          },
+          profile_group_id: profile_group_id
+        )
+        Placement.new(**result)
+      end
+
+      # Lists DM ice breakers. Supported for Instagram profiles only.
+      def ice_breakers(id, profile_group_id: nil)
+        result = @client.request(:get, "/profiles/#{id}/ice_breakers", profile_group_id: profile_group_id)
+        IceBreakersResponse.new(**result)
+      end
+
+      # Replaces the DM ice breakers for a profile (1-4 items).
+      def set_ice_breakers(id, ice_breakers, profile_group_id: nil)
+        items = ice_breakers.map { |ib| ib.is_a?(IceBreaker) ? ib.to_h : ib }
+        result = @client.request(:post, "/profiles/#{id}/ice_breakers",
+          json: { ice_breakers: items },
+          profile_group_id: profile_group_id
+        )
+        SuccessResponse.new(**result)
+      end
+
+      def delete_ice_breakers(id, profile_group_id: nil)
+        result = @client.request(:delete, "/profiles/#{id}/ice_breakers", profile_group_id: profile_group_id)
+        SuccessResponse.new(**result)
+      end
+
       def delete(id, profile_group_id: nil)
         result = @client.request(:delete, "/profiles/#{id}", profile_group_id: profile_group_id)
         SuccessResponse.new(**result)

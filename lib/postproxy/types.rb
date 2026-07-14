@@ -235,7 +235,29 @@ module PostProxy
   end
 
   class Placement < Model
-    attr_accessor :id, :name
+    # `metadata` and `profile_group_id` are present in placements and
+    # assign_placement_to_group responses.
+    attr_accessor :id, :name, :metadata, :profile_group_id
+  end
+
+  # Instagram DM ice breaker (FAQ prompt). May carry extra platform fields.
+  class IceBreaker < Model
+    attr_accessor :question, :payload
+
+    def to_h
+      { question: question, payload: payload }
+    end
+  end
+
+  class IceBreakersResponse < Model
+    attr_accessor :ice_breakers
+
+    def initialize(**attrs)
+      @ice_breakers = (attrs.delete(:ice_breakers) || []).map do |ib|
+        ib.is_a?(IceBreaker) ? ib : IceBreaker.new(**ib)
+      end
+      super
+    end
   end
 
   class StatsRecord < Model
@@ -596,7 +618,9 @@ module PostProxy
   end
 
   class TwitterParams < Model
-    attr_accessor :format
+    # poll_options and poll_duration_minutes are required when format is
+    # "poll": 2-4 options (max 25 chars each), duration 5 to 10080 minutes.
+    attr_accessor :format, :poll_options, :poll_duration_minutes
   end
 
   class BlueskyParams < Model
