@@ -261,10 +261,13 @@ module PostProxy
   end
 
   class StatsRecord < Model
-    attr_accessor :stats, :recorded_at
+    # `raw_stats` carries every metric under its original platform name, e.g.
+    # `views` for Instagram or `impression_count` for Twitter/X.
+    attr_accessor :stats, :raw_stats, :recorded_at
 
     def initialize(**attrs)
       @stats = {}
+      @raw_stats = {}
       @recorded_at = nil
       super
       @recorded_at = parse_time(@recorded_at)
@@ -505,6 +508,79 @@ module PostProxy
     attr_accessor :accepted
   end
 
+  # A comment from Comments#list_all. Flat: replies are their own entries
+  # linked to their parent by `parent_external_id` rather than nested under
+  # `replies`.
+  class BulkComment < Model
+    attr_accessor :post_id, :profile_id, :platform, :id, :external_id, :body,
+                  :status, :author_username, :author_avatar_url,
+                  :author_external_id, :metadata, :parent_external_id,
+                  :like_count, :is_hidden, :permalink, :platform_data,
+                  :attachments, :posted_at, :created_at
+
+    def initialize(**attrs)
+      @external_id = nil
+      @author_username = nil
+      @author_avatar_url = nil
+      @author_external_id = nil
+      @metadata = nil
+      @parent_external_id = nil
+      @like_count = 0
+      @is_hidden = false
+      @permalink = nil
+      @platform_data = nil
+      @attachments = []
+      @posted_at = nil
+      super
+      @posted_at = parse_time(@posted_at)
+      @created_at = parse_time(@created_at)
+      @attachments = (@attachments || []).map do |a|
+        a.is_a?(Attachment) ? a : Attachment.new(**a.transform_keys(&:to_sym))
+      end
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
+  # A record of one post pull for a profile — the sync fired when the profile
+  # connects, the recurring poll, or a backfill.
+  class PostSync < Model
+    attr_accessor :id, :profile_id, :kind, :trigger, :status, :started_at,
+                  :completed_at, :posts_seen, :posts_imported, :backfill_from,
+                  :oldest_posted_at, :error, :created_at
+
+    def initialize(**attrs)
+      @started_at = nil
+      @completed_at = nil
+      @posts_seen = 0
+      # Posts that were new and got created — lower than `posts_seen` whenever
+      # the run re-read posts you already have.
+      @posts_imported = 0
+      @backfill_from = nil
+      # Publish date of the oldest post the run reached.
+      @oldest_posted_at = nil
+      @error = nil
+      super
+      @started_at = parse_time(@started_at)
+      @completed_at = parse_time(@completed_at)
+      @backfill_from = parse_time(@backfill_from)
+      @oldest_posted_at = parse_time(@oldest_posted_at)
+      @created_at = parse_time(@created_at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
   class DeleteResponse < Model
     attr_accessor :deleted
   end
@@ -589,9 +665,37 @@ module PostProxy
     attr_accessor :format, :title, :first_comment, :page_id
   end
 
+  # An Instagram account to tag in a post. Images require `x` and `y`; reels
+  # and video slides are tagged by username only — Instagram ignores
+  # coordinates there. `media_index` picks the carousel slide (0-based).
+  class InstagramUserTag < Model
+    attr_accessor :username, :x, :y, :media_index
+  end
+
   class InstagramParams < Model
     attr_accessor :format, :first_comment, :collaborators, :cover_url,
-                  :audio_name, :trial_strategy, :thumb_offset
+                  :audio_name, :trial_strategy, :thumb_offset, :user_tags
+
+    def initialize(**attrs)
+      @user_tags = nil
+      super
+      @user_tags = @user_tags&.map do |t|
+        t.is_a?(InstagramUserTag) ? t : InstagramUserTag.new(**t.transform_keys(&:to_sym))
+      end
+    end
+
+    # User tags must reach the wire as plain hashes, with unset coordinates
+    # dropped rather than sent as nulls.
+    def to_h
+      result = super
+      tags = result[:user_tags]
+      return result if tags.nil?
+
+      result[:user_tags] = tags.map do |t|
+        (t.is_a?(Model) ? t.to_h : t).reject { |_, v| v.nil? }
+      end
+      result
+    end
   end
 
   class TikTokParams < Model

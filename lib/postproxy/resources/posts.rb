@@ -30,7 +30,7 @@ module PostProxy
 
       def create(body, profiles:, media: nil, media_files: nil, platforms: nil,
                  thread: nil, scheduled_at: nil, draft: nil, queue_id: nil,
-                 queue_priority: nil, profile_group_id: nil)
+                 queue_priority: nil, profile_group_id: nil, idempotency_key: nil)
         has_files = media_files && !media_files.empty?
         has_thread_files = thread&.any? { |t| t[:media_files]&.any? }
 
@@ -87,7 +87,8 @@ module PostProxy
           result = @client.request(:post, "/posts",
             data: form_data,
             files: files,
-            profile_group_id: profile_group_id
+            profile_group_id: profile_group_id,
+            idempotency_key: idempotency_key
           )
         else
           post_payload = { body: body }
@@ -101,7 +102,11 @@ module PostProxy
           json_body[:queue_id] = queue_id if queue_id
           json_body[:queue_priority] = queue_priority if queue_priority
 
-          result = @client.request(:post, "/posts", json: json_body, profile_group_id: profile_group_id)
+          result = @client.request(:post, "/posts",
+            json: json_body,
+            profile_group_id: profile_group_id,
+            idempotency_key: idempotency_key
+          )
         end
 
         Post.new(**result)
@@ -109,7 +114,7 @@ module PostProxy
 
       def update(id, body: nil, profiles: nil, media: nil, media_files: nil, platforms: nil,
                  thread: nil, scheduled_at: nil, draft: nil, queue_id: nil,
-                 queue_priority: nil, profile_group_id: nil)
+                 queue_priority: nil, profile_group_id: nil, idempotency_key: nil)
         has_files = media_files && !media_files.empty?
         has_thread_files = thread&.any? { |t| t[:media_files]&.any? }
 
@@ -167,7 +172,8 @@ module PostProxy
           result = @client.request(:patch, "/posts/#{id}",
             data: form_data,
             files: files,
-            profile_group_id: profile_group_id
+            profile_group_id: profile_group_id,
+            idempotency_key: idempotency_key
           )
         else
           json_body = {}
@@ -185,14 +191,21 @@ module PostProxy
           json_body[:queue_id] = queue_id if queue_id
           json_body[:queue_priority] = queue_priority if queue_priority
 
-          result = @client.request(:patch, "/posts/#{id}", json: json_body, profile_group_id: profile_group_id)
+          result = @client.request(:patch, "/posts/#{id}",
+            json: json_body,
+            profile_group_id: profile_group_id,
+            idempotency_key: idempotency_key
+          )
         end
 
         Post.new(**result)
       end
 
-      def publish_draft(id, profile_group_id: nil)
-        result = @client.request(:post, "/posts/#{id}/publish", profile_group_id: profile_group_id)
+      def publish_draft(id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:post, "/posts/#{id}/publish",
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
         Post.new(**result)
       end
 
@@ -209,24 +222,27 @@ module PostProxy
         StatsResponse.new(data: posts)
       end
 
-      def delete(id, delete_on_platform: nil, profile_group_id: nil)
+      def delete(id, delete_on_platform: nil, profile_group_id: nil, idempotency_key: nil)
         params = {}
         params[:delete_on_platform] = delete_on_platform unless delete_on_platform.nil?
         result = @client.request(:delete, "/posts/#{id}",
           params: params.empty? ? nil : params,
-          profile_group_id: profile_group_id
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
         )
         DeleteResponse.new(**result)
       end
 
-      def delete_on_platform(id, post_profile_id: nil, profile_id: nil, network: nil, profile_group_id: nil)
+      def delete_on_platform(id, post_profile_id: nil, profile_id: nil, network: nil, profile_group_id: nil,
+        idempotency_key: nil)
         json_body = {}
         json_body[:post_profile_id] = post_profile_id if post_profile_id
         json_body[:profile_id] = profile_id if profile_id
         json_body[:network] = network if network
         result = @client.request(:post, "/posts/#{id}/delete_on_platform",
           json: json_body.empty? ? nil : json_body,
-          profile_group_id: profile_group_id
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
         )
         DeleteOnPlatformResponse.new(**result)
       end

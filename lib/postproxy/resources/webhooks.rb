@@ -16,27 +16,27 @@ module PostProxy
         Webhook.new(**result)
       end
 
-      def create(url, events:, description: nil)
+      def create(url, events:, description: nil, idempotency_key: nil)
         json_body = { url: url, events: events }
         json_body[:description] = description if description
 
-        result = @client.request(:post, "/webhooks", json: json_body)
+        result = @client.request(:post, "/webhooks", json: json_body, idempotency_key: idempotency_key)
         Webhook.new(**result)
       end
 
-      def update(id, url: nil, events: nil, enabled: nil, description: nil)
+      def update(id, url: nil, events: nil, enabled: nil, description: nil, idempotency_key: nil)
         json_body = {}
         json_body[:url] = url unless url.nil?
         json_body[:events] = events unless events.nil?
         json_body[:enabled] = enabled unless enabled.nil?
         json_body[:description] = description unless description.nil?
 
-        result = @client.request(:patch, "/webhooks/#{id}", json: json_body)
+        result = @client.request(:patch, "/webhooks/#{id}", json: json_body, idempotency_key: idempotency_key)
         Webhook.new(**result)
       end
 
-      def delete(id)
-        result = @client.request(:delete, "/webhooks/#{id}")
+      def delete(id, idempotency_key: nil)
+        result = @client.request(:delete, "/webhooks/#{id}", idempotency_key: idempotency_key)
         DeleteResponse.new(**result)
       end
 

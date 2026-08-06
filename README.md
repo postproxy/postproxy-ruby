@@ -50,6 +50,36 @@ end
 client = PostProxy::Client.new("your-api-key", faraday_client: faraday)
 ```
 
+### Idempotency
+
+Every write method (`POST`/`PUT`/`PATCH`/`DELETE`) accepts an `idempotency_key:`, sent as
+the `Idempotency-Key` header. If the connection drops before you see the response, retry
+with the same key and you get the original response back instead of a second post:
+
+```ruby
+require "securerandom"
+
+key = SecureRandom.uuid
+post = client.posts.create("Hello", profiles: ["profile-id"], idempotency_key: key)
+
+# Retrying the same call with the same key replays the original response.
+```
+
+Generate a fresh key per logical operation — a UUID is ideal. Keys are scoped to your
+account and may be up to 255 characters. The SDK never generates keys or retries for you.
+
+| Situation | Result |
+|---|---|
+| First request with the key | Runs normally |
+| Retry after a success | Original status and body replayed |
+| Retry while the first is still running | `ConflictError` (409) — wait and retry |
+| Same key, different request body | `ValidationError` (422) |
+| Retry after an error response | Runs normally — errors are not replayed |
+
+Only successful (`2xx`) responses are stored, so a request that failed validation or hit a
+quota leaves the key free — fix the payload and retry with the same key. Stored responses
+are kept for **24 hours**. Requests without a key are unaffected.
+
 ## Posts
 
 ```ruby
@@ -306,6 +336,15 @@ end
 # List with pagination
 comments = client.comments.list("post-id", profile_id: "profile-id", page: 2, per_page: 10)
 
+# Filter by when PostProxy received the comment (created_at, not posted_at).
+# A bare date means that date's start of day. Applies to top-level comments —
+# one in range brings its full replies array with it.
+recent = client.comments.list("post-id",
+  profile_id: "profile-id",
+  from: "2026-03-25",
+  to: "2026-03-26T12:00:00Z"
+)
+
 # Get a single comment
 comment = client.comments.get("post-id", "comment-id", profile_id: "profile-id")
 
@@ -336,6 +375,38 @@ puts comment.metadata[:follower_count] if comment.metadata
 message = client.comments.private_reply("post-id", "comment-id", profile_id: "profile-id", text: "DM-ing you the details.")
 puts message.chat_id, message.status
 ```
+
+### Comments across posts
+
+`comments.list_all` returns comments spanning every post in the profile group in one
+request — the comments counterpart to `posts.stats`. Every filter is optional.
+
+**This list is flat.** Unlike the per-post list, replies are not nested: every comment,
+top-level or reply, is its own entry linked to its parent by `parent_external_id`, so
+`total` counts every comment and paging is exact.
+
+```ruby
+all = client.comments.list_all(
+  profiles: ["instagram", "prof-abc"],  # profile IDs or network names, mixed
+  post_ids: ["post-1", "post-2"],       # omit for every post in scope
+  from: "2026-03-25",
+  per_page: 50                          # max 100
+)
+
+all.data.each do |c|
+  # Each entry says where it came from, so you can act on it with the
+  # post-scoped methods above.
+  puts "#{c.platform} #{c.post_id} #{c.profile_id}: #{c.body}"
+  puts "  ↳ reply to #{c.parent_external_id}" if c.parent_external_id
+end
+
+# Reply to one of them
+first = all.data.first
+client.comments.create(first.post_id, "Thanks!", profile_id: first.profile_id, parent_id: first.id)
+```
+
+Unknown or out-of-scope IDs in `post_ids` and `profiles` are ignored rather than erroring.
+Results are ordered newest first by receipt time.
 
 ## Direct Messages
 
@@ -466,6 +537,81 @@ bsky = client.profiles.get_profile_stats("prof_bsky_001")
 puts bsky.data.records.last.stats[:followersCount]
 ```
 
+Every stats record (post stats and profile stats alike) carries `raw_stats` alongside the
+normalized `stats`, exposing each metric under its **original platform name**:
+
+```ruby
+stats = client.posts.stats(["post-id"])
+record = stats.data["post-id"].platforms.first.records.first
+
+puts record.stats[:impressions]          # normalized
+puts record.raw_stats[:views]            # Instagram's own name
+puts record.raw_stats[:impression_count] # Twitter/X's own name
+```
+
+LinkedIn post stats now normalize `likes`, `comments`, `shares`, and `clicks` alongside
+`impressions` — previously only `impressions` was normalized.
+
+### Post syncs & backfill
+
+PostProxy mirrors posts published natively on a platform into your account. Every one of
+those pulls is recorded as a **post sync**: the one fired when the profile connects, the
+recurring poll, and any backfill you start.
+
+```ruby
+# Start a backfill — walks the feed backwards from the newest post in batches
+# of 25 until it reaches `from` or the platform stops returning posts.
+sync = client.profiles.backfill_posts("prof-id", from: "2025-01-01")
+puts sync.id, sync.status # => "sync456def" "pending"
+
+# Poll it to completion — finished when status is "completed" or "failed"
+run = client.profiles.post_sync("prof-id", sync.id)
+puts "#{run.posts_imported} of #{run.posts_seen}, back to #{run.oldest_posted_at}"
+
+# List recent runs (kept for 30 days), newest first
+runs = client.profiles.post_syncs("prof-id",
+  trigger: "backfill",   # connect | scheduled | backfill
+  status: "completed",   # pending | running | completed | failed
+  per_page: 25
+)
+```
+
+| `PostSync` field | Description |
+|---|---|
+| `id` | Sync identifier |
+| `profile_id` | Profile this run belongs to |
+| `kind` | Always `posts` today |
+| `trigger` | `connect`, `scheduled`, or `backfill` |
+| `status` | `pending`, `running`, `completed`, or `failed` |
+| `started_at` / `completed_at` | `Time` or `nil` |
+| `posts_seen` | Posts the platform returned across the run |
+| `posts_imported` | Posts that were **new** and got created |
+| `backfill_from` | The date floor requested; `nil` for `connect`/`scheduled` |
+| `oldest_posted_at` | Publish date of the oldest post the run reached |
+| `error` | Platform error message when `status` is `"failed"` |
+| `created_at` | `Time` |
+
+**How far back a backfill reaches depends on the platform's API**, not on PostProxy: where
+history is pageable we follow it, otherwise the run ends early with whatever it got and
+still reports `status == "completed"`.
+
+Only one backfill runs per profile at a time — starting a second raises `ConflictError`
+carrying the running one's id:
+
+```ruby
+begin
+  client.profiles.backfill_posts("prof-id", from: "2025-01-01")
+rescue PostProxy::ConflictError => e
+  running_id = e.response[:profile_sync_id]
+  # Poll the run that's already going.
+end
+```
+
+Posts you already have are skipped, so overlapping backfills are safe. Imported posts
+behave exactly like ones the poll picks up (`source: "imported"`, `post.imported`
+webhook), but a backfill's follow-up work is queued at a lower priority so a deep run
+can't slow down publishing.
+
 ## Profile Groups
 
 ```ruby
@@ -560,6 +706,43 @@ post = client.posts.create(
 
 Supported platforms: `facebook`, `instagram`, `tiktok`, `linkedin`, `youtube`, `twitter`, `threads`, `pinterest`, `bluesky`, `telegram`, `google_business`. Telegram requires a `chat_id` per post — list channels with `client.profiles.placements(profile_id)`.
 
+### Instagram user tags
+
+Tag public Instagram accounts in a post — feed post, reel, or story:
+
+```ruby
+client.posts.create(
+  "Shot on location",
+  profiles: ["ig-profile-id"],
+  media: [
+    "https://example.com/1.jpg",
+    "https://example.com/2.jpg",
+    "https://example.com/3.mp4"
+  ],
+  platforms: PostProxy::PlatformParams.new(
+    instagram: PostProxy::InstagramParams.new(
+      format: "post",
+      user_tags: [
+        { username: "natgeo", x: 0.5, y: 0.4 },               # slide 0
+        { username: "nasa", x: 0.2, y: 0.8, media_index: 1 },  # slide 1
+        { username: "spacex", media_index: 2 }                 # video — username only
+      ]
+    )
+  )
+)
+```
+
+- **Images require `x` and `y`** — floats `0.0`–`1.0` measured from the top-left corner.
+- **Reels and video slides** are tagged by username only; coordinates are ignored and dropped.
+- **Stories** accept coordinates but don't need them.
+- `media_index` picks the carousel slide (0-based, defaults to `0`, video slides included).
+- A leading `@` on a username is stripped for you.
+
+Coordinates outside `0.0`–`1.0`, a `media_index` past the last media item, or an image tag
+missing `x`/`y` are rejected with a `ValidationError` naming the offending entry. Accounts
+that are private or have tagging turned off are silently skipped by Instagram at publish
+time.
+
 ### Google Business
 
 Google Business posts use a `google_business` entry in `PlatformParams` (a plain hash; no typed struct). The `location_id` is the location resource path returned by `client.profiles.placements()`. Supported formats: `standard`, `event`, `offer`. CTA actions: `LEARN_MORE`, `BOOK`, `ORDER`, `SHOP`, `SIGN_UP`, `CALL`. Media is limited to one image (≤5 MB).
@@ -589,6 +772,10 @@ rescue PostProxy::AuthenticationError => e
   puts "Auth failed: #{e.message}"       # 401
 rescue PostProxy::NotFoundError => e
   puts "Not found: #{e.message}"          # 404
+rescue PostProxy::ConflictError => e
+  puts "Conflict: #{e.message}"           # 409
+  puts e.response[:duplicate_post_id]     # on a duplicate post
+  puts e.response[:profile_sync_id]       # on a backfill already running
 rescue PostProxy::ValidationError => e
   puts "Invalid: #{e.message}"            # 422
 rescue PostProxy::BadRequestError => e
@@ -598,6 +785,15 @@ rescue PostProxy::Error => e
   puts e.response  # parsed response body
 end
 ```
+
+| Status | Error | Raised for |
+|---|---|---|
+| 400 | `BadRequestError` | Missing required parameters |
+| 401 | `AuthenticationError` | Invalid, missing, or insufficient API key permissions |
+| 404 | `NotFoundError` | Resource does not exist or is not accessible |
+| 409 | `ConflictError` | Duplicate submission, a backfill already running, or an in-flight `Idempotency-Key` |
+| 422 | `ValidationError` | Validation failed |
+| 429 | `Error` | Posting rate limit reached |
 
 ## License
 

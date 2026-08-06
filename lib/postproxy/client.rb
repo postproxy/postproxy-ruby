@@ -67,7 +67,8 @@ module PostProxy
       @messages ||= Resources::Messages.new(self)
     end
 
-    def request(method, path, params: nil, json: nil, data: nil, files: nil, profile_group_id: nil)
+    def request(method, path, params: nil, json: nil, data: nil, files: nil, profile_group_id: nil,
+      idempotency_key: nil)
       url = "/api#{path}"
 
       query = {}
@@ -102,12 +103,14 @@ module PostProxy
                    end
                    conn.send(method, url) do |req|
                      req.params = query unless query.empty?
+                     req.headers["Idempotency-Key"] = idempotency_key if idempotency_key
                      req.body = payload
                    end
                  else
                    conn = json_connection
                    conn.send(method, url) do |req|
                      req.params = query unless query.empty?
+                     req.headers["Idempotency-Key"] = idempotency_key if idempotency_key
                      req.body = json.to_json if json
                    end
                  end
@@ -156,6 +159,13 @@ module PostProxy
       when 404
         body = parse_error_body(response)
         raise NotFoundError.new(
+          error_message(body),
+          status_code: response.status,
+          response: body
+        )
+      when 409
+        body = parse_error_body(response)
+        raise ConflictError.new(
           error_message(body),
           status_code: response.status,
           response: body

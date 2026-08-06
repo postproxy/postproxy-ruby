@@ -26,14 +26,16 @@ module PostProxy
         ProfileComment.new(**result)
       end
 
-      def create(profile_id, parent_id:, text:)
+      def create(profile_id, parent_id:, text:, idempotency_key: nil)
         result = @client.request(:post, "/profiles/#{profile_id}/comments",
-                                 json: { parent_id: parent_id, text: text })
+                                 json: { parent_id: parent_id, text: text },
+                                 idempotency_key: idempotency_key)
         ProfileComment.new(**result)
       end
 
-      def delete(profile_id, comment_id)
-        result = @client.request(:delete, "/profiles/#{profile_id}/comments/#{comment_id}")
+      def delete(profile_id, comment_id, idempotency_key: nil)
+        result = @client.request(:delete, "/profiles/#{profile_id}/comments/#{comment_id}",
+                                 idempotency_key: idempotency_key)
         AcceptedResponse.new(**result)
       end
     end

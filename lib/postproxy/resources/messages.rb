@@ -23,7 +23,8 @@ module PostProxy
       end
 
       def send_message(chat_id, body: nil, media: nil, media_files: nil, tag: nil,
-                       reply_to_external_id: nil, reply_markup: nil, profile_group_id: nil)
+                       reply_to_external_id: nil, reply_markup: nil, profile_group_id: nil,
+                       idempotency_key: nil)
         has_files = media_files && !media_files.empty?
 
         if has_files
@@ -47,7 +48,8 @@ module PostProxy
           result = @client.request(:post, "/chats/#{chat_id}/messages",
             data: form_data,
             files: files,
-            profile_group_id: profile_group_id
+            profile_group_id: profile_group_id,
+            idempotency_key: idempotency_key
           )
         else
           json_body = {}
@@ -57,7 +59,11 @@ module PostProxy
           json_body[:reply_to_external_id] = reply_to_external_id if reply_to_external_id
           json_body[:reply_markup] = reply_markup if reply_markup
 
-          result = @client.request(:post, "/chats/#{chat_id}/messages", json: json_body, profile_group_id: profile_group_id)
+          result = @client.request(:post, "/chats/#{chat_id}/messages",
+            json: json_body,
+            profile_group_id: profile_group_id,
+            idempotency_key: idempotency_key
+          )
         end
 
         Message.new(**result)
@@ -69,29 +75,37 @@ module PostProxy
         Message.new(**result)
       end
 
-      def edit(message_id, body: nil, reply_markup: nil, profile_group_id: nil)
+      def edit(message_id, body: nil, reply_markup: nil, profile_group_id: nil, idempotency_key: nil)
         json_body = {}
         json_body[:body] = body if body
         json_body[:reply_markup] = reply_markup if reply_markup
 
-        result = @client.request(:patch, "/messages/#{message_id}", json: json_body, profile_group_id: profile_group_id)
+        result = @client.request(:patch, "/messages/#{message_id}",
+          json: json_body,
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
         Message.new(**result)
       end
 
-      def react(message_id, reaction: nil, emoji: nil, profile_group_id: nil)
+      def react(message_id, reaction: nil, emoji: nil, profile_group_id: nil, idempotency_key: nil)
         json_body = {}
         json_body[:reaction] = reaction if reaction
         json_body[:emoji] = emoji if emoji
 
         result = @client.request(:post, "/messages/#{message_id}/react",
           json: json_body.empty? ? nil : json_body,
-          profile_group_id: profile_group_id
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
         )
         Message.new(**result)
       end
 
-      def unreact(message_id, profile_group_id: nil)
-        result = @client.request(:delete, "/messages/#{message_id}/unreact", profile_group_id: profile_group_id)
+      def unreact(message_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:delete, "/messages/#{message_id}/unreact",
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
         Message.new(**result)
       end
 

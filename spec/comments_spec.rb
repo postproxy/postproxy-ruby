@@ -236,4 +236,97 @@ RSpec.describe PostProxy::Resources::Comments do
         .with { |req| JSON.parse(req.body)["text"] == "DM-ing you the details." }
     end
   end
+
+  describe "date filters" do
+    it "passes from and to on the per-post list" do
+      stub = stub_api(:get, "/posts/#{post_id}/comments",
+        body: { data: [mock_comment], total: 1, page: 0, per_page: 20 },
+        query: { profile_id: profile_id, from: "2026-03-25", to: "2026-03-26T12:00:00Z" })
+
+      client.comments.list(post_id, profile_id: profile_id, from: "2026-03-25", to: "2026-03-26T12:00:00Z")
+      expect(stub).to have_been_requested
+    end
+  end
+
+  describe "#list_all" do
+    let(:bulk_comment) do
+      {
+        post_id: "abc123xyz",
+        profile_id: "prof456",
+        platform: "instagram",
+        id: "cmt_abc123",
+        external_id: "17858893269123456",
+        body: "Great post!",
+        status: "synced",
+        author_username: "someuser",
+        author_avatar_url: nil,
+        author_external_id: "12345",
+        metadata: nil,
+        parent_external_id: nil,
+        like_count: 3,
+        is_hidden: false,
+        permalink: nil,
+        platform_data: nil,
+        attachments: [],
+        posted_at: "2026-03-25T10:00:00Z",
+        created_at: "2026-03-25T10:01:00Z",
+      }
+    end
+
+    let(:bulk_reply) do
+      bulk_comment.merge(
+        id: "cmt_def456",
+        body: "Thanks!",
+        parent_external_id: "17858893269123456",
+        like_count: 1
+      )
+    end
+
+    it "lists comments across posts" do
+      stub = stub_api(:get, "/comments",
+        body: { total: 2, page: 0, per_page: 50, data: [bulk_comment, bulk_reply] },
+        query: {
+          profiles: "instagram,prof456",
+          post_ids: "abc123xyz,def456uvw",
+          from: "2026-03-25",
+          per_page: "50"
+        })
+
+      result = client.comments.list_all(
+        profiles: ["instagram", "prof456"],
+        post_ids: ["abc123xyz", "def456uvw"],
+        from: "2026-03-25",
+        per_page: 50
+      )
+
+      expect(result).to be_a(PostProxy::PaginatedResponse)
+      expect(result.total).to eq(2)
+      expect(result.data.first).to be_a(PostProxy::BulkComment)
+      expect(result.data.first.post_id).to eq("abc123xyz")
+      expect(result.data.first.profile_id).to eq("prof456")
+      expect(result.data.first.platform).to eq("instagram")
+      # Flat: the reply is its own entry, linked by parent_external_id.
+      expect(result.data.last.parent_external_id).to eq("17858893269123456")
+      expect(stub).to have_been_requested
+    end
+
+    it "sends no filters when none are given" do
+      stub = stub_api(:get, "/comments", body: { total: 0, page: 0, per_page: 20, data: [] })
+
+      client.comments.list_all
+      expect(stub).to have_been_requested
+    end
+  end
+
+  describe "idempotency" do
+    it "sends the key when creating a comment" do
+      stub = stub_request(:post, "#{BASE_URL}/api/posts/#{post_id}/comments")
+        .with(query: { profile_id: profile_id }, headers: { "Idempotency-Key" => "key-42" })
+        .to_return(status: 200, body: mock_comment.to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      client.comments.create(post_id, "Nice", profile_id: profile_id, idempotency_key: "key-42")
+      expect(stub).to have_been_requested
+    end
+  end
 end

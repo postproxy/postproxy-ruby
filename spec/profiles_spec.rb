@@ -125,4 +125,89 @@ RSpec.describe PostProxy::Resources::Profiles do
       expect(result.success).to be true
     end
   end
+
+  POST_SYNC = {
+    id: "sync456def",
+    profile_id: "prof-1",
+    kind: "posts",
+    trigger: "backfill",
+    status: "running",
+    started_at: "2026-08-06T09:15:02.000Z",
+    completed_at: nil,
+    posts_seen: 150,
+    posts_imported: 143,
+    backfill_from: "2025-01-01T00:00:00.000Z",
+    oldest_posted_at: "2025-11-04T18:22:00.000Z",
+    error: nil,
+    created_at: "2026-08-06T09:15:00.000Z"
+  }.freeze
+
+  describe "#backfill_posts" do
+    it "starts a backfill" do
+      stub = stub_request(:post, "#{BASE_URL}/api/profiles/prof-1/backfill_posts")
+        .with(body: { from: "2025-01-01" }.to_json)
+        .to_return(status: 202, body: POST_SYNC.merge(status: "pending").to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      sync = client.profiles.backfill_posts("prof-1", from: "2025-01-01")
+
+      expect(sync).to be_a(PostProxy::PostSync)
+      expect(sync.id).to eq("sync456def")
+      expect(sync.trigger).to eq("backfill")
+      expect(sync.status).to eq("pending")
+      expect(stub).to have_been_requested
+    end
+
+    it "sends an idempotency key" do
+      stub = stub_request(:post, "#{BASE_URL}/api/profiles/prof-1/backfill_posts")
+        .with(headers: { "Idempotency-Key" => "key-1" })
+        .to_return(status: 202, body: POST_SYNC.to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      client.profiles.backfill_posts("prof-1", from: "2025-01-01", idempotency_key: "key-1")
+      expect(stub).to have_been_requested
+    end
+
+    it "raises ConflictError when a backfill is already running" do
+      stub_api(:post, "/profiles/prof-1/backfill_posts", status: 409, body: {
+        error: "A posts backfill is already running for this profile",
+        profile_sync_id: "sync456def"
+      })
+
+      expect { client.profiles.backfill_posts("prof-1", from: "2025-01-01") }
+        .to raise_error(PostProxy::ConflictError) { |e|
+          expect(e.status_code).to eq(409)
+          expect(e.response[:profile_sync_id]).to eq("sync456def")
+        }
+    end
+  end
+
+  describe "#post_syncs" do
+    it "lists runs with filters" do
+      stub = stub_api(:get, "/profiles/prof-1/post_syncs",
+        body: { total: 1, page: 0, per_page: 25, data: [POST_SYNC] },
+        query: { trigger: "backfill", status: "running", per_page: "25" }
+      )
+
+      result = client.profiles.post_syncs("prof-1", trigger: "backfill", status: "running", per_page: 25)
+
+      expect(result).to be_a(PostProxy::PaginatedResponse)
+      expect(result.total).to eq(1)
+      expect(result.data.first.posts_imported).to eq(143)
+      expect(result.data.first.oldest_posted_at).to be_a(Time)
+      expect(stub).to have_been_requested
+    end
+  end
+
+  describe "#post_sync" do
+    it "fetches a single run" do
+      stub_api(:get, "/profiles/prof-1/post_syncs/sync456def",
+        body: POST_SYNC.merge(status: "completed", completed_at: "2026-08-06T09:40:00.000Z"))
+
+      sync = client.profiles.post_sync("prof-1", "sync456def")
+
+      expect(sync.status).to eq("completed")
+      expect(sync.completed_at).to be_a(Time)
+    end
+  end
 end

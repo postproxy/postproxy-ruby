@@ -22,12 +22,17 @@ module PostProxy
         )
       end
 
-      def create(profile_id, participant_external_id, participant_username: nil, participant_name: nil, profile_group_id: nil)
+      def create(profile_id, participant_external_id, participant_username: nil, participant_name: nil,
+        profile_group_id: nil, idempotency_key: nil)
         json_body = { participant_external_id: participant_external_id }
         json_body[:participant_username] = participant_username if participant_username
         json_body[:participant_name] = participant_name if participant_name
 
-        result = @client.request(:post, "/profiles/#{profile_id}/chats", json: json_body, profile_group_id: profile_group_id)
+        result = @client.request(:post, "/profiles/#{profile_id}/chats",
+          json: json_body,
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
         Chat.new(**result)
       end
 
@@ -36,13 +41,19 @@ module PostProxy
         Chat.new(**result)
       end
 
-      def archive(chat_id, profile_group_id: nil)
-        result = @client.request(:post, "/chats/#{chat_id}/archive", profile_group_id: profile_group_id)
+      def archive(chat_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:post, "/chats/#{chat_id}/archive",
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
         Chat.new(**result)
       end
 
-      def unarchive(chat_id, profile_group_id: nil)
-        result = @client.request(:delete, "/chats/#{chat_id}/archive", profile_group_id: profile_group_id)
+      def unarchive(chat_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:delete, "/chats/#{chat_id}/archive",
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
         Chat.new(**result)
       end
 

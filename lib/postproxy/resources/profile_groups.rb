@@ -16,13 +16,16 @@ module PostProxy
         ProfileGroup.new(**result)
       end
 
-      def create(name)
-        result = @client.request(:post, "/profile_groups", json: { name: name })
+      def create(name, idempotency_key: nil)
+        result = @client.request(:post, "/profile_groups",
+          json: { name: name },
+          idempotency_key: idempotency_key
+        )
         ProfileGroup.new(**result)
       end
 
-      def delete(id)
-        result = @client.request(:delete, "/profile_groups/#{id}")
+      def delete(id, idempotency_key: nil)
+        result = @client.request(:delete, "/profile_groups/#{id}", idempotency_key: idempotency_key)
         DeleteResponse.new(**result)
       end
 

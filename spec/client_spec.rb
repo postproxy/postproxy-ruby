@@ -85,5 +85,39 @@ RSpec.describe PostProxy::Client do
         expect(e.status_code).to eq(500)
       end
     end
+
+    it "raises ConflictError on 409" do
+      stub_api(:get, "/profiles", status: 409, body: {
+        error: "Duplicate post", duplicate_post_id: "post-1"
+      })
+      client = new_client
+
+      expect { client.profiles.list }.to raise_error(PostProxy::ConflictError) do |e|
+        expect(e.status_code).to eq(409)
+        expect(e.response[:duplicate_post_id]).to eq("post-1")
+      end
+    end
+  end
+
+  describe "idempotency" do
+    it "sends the Idempotency-Key header when a key is given" do
+      stub = stub_request(:post, "#{BASE_URL}/api/profile_groups")
+        .with(headers: { "Idempotency-Key" => "3f8b1c94-6a2d-4f0e-9d31-7c5e2a8b4f10" })
+        .to_return(status: 200, body: { id: "pg-1", name: "Team" }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      new_client.profile_groups.create("Team", idempotency_key: "3f8b1c94-6a2d-4f0e-9d31-7c5e2a8b4f10")
+      expect(stub).to have_been_requested
+    end
+
+    it "omits the header when no key is given" do
+      stub = stub_request(:post, "#{BASE_URL}/api/profile_groups")
+        .with { |req| !req.headers.key?("Idempotency-Key") }
+        .to_return(status: 200, body: { id: "pg-1", name: "Team" }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      new_client.profile_groups.create("Team")
+      expect(stub).to have_been_requested
+    end
   end
 end

@@ -21,7 +21,8 @@ module PostProxy
         NextSlotResponse.new(**result)
       end
 
-      def create(name, profile_group_id:, description: nil, timezone: nil, jitter: nil, timeslots: nil)
+      def create(name, profile_group_id:, description: nil, timezone: nil, jitter: nil, timeslots: nil,
+        idempotency_key: nil)
         post_queue = { name: name }
         post_queue[:description] = description if description
         post_queue[:timezone] = timezone if timezone
@@ -33,11 +34,12 @@ module PostProxy
           post_queue: post_queue,
         }
 
-        result = @client.request(:post, "/post_queues", json: json_body)
+        result = @client.request(:post, "/post_queues", json: json_body, idempotency_key: idempotency_key)
         Queue.new(**result)
       end
 
-      def update(id, name: nil, description: nil, timezone: nil, enabled: nil, jitter: nil, timeslots: nil)
+      def update(id, name: nil, description: nil, timezone: nil, enabled: nil, jitter: nil, timeslots: nil,
+        idempotency_key: nil)
         post_queue = {}
         post_queue[:name] = name unless name.nil?
         post_queue[:description] = description unless description.nil?
@@ -48,12 +50,12 @@ module PostProxy
 
         json_body = { post_queue: post_queue }
 
-        result = @client.request(:patch, "/post_queues/#{id}", json: json_body)
+        result = @client.request(:patch, "/post_queues/#{id}", json: json_body, idempotency_key: idempotency_key)
         Queue.new(**result)
       end
 
-      def delete(id)
-        result = @client.request(:delete, "/post_queues/#{id}")
+      def delete(id, idempotency_key: nil)
+        result = @client.request(:delete, "/post_queues/#{id}", idempotency_key: idempotency_key)
         DeleteResponse.new(**result)
       end
     end

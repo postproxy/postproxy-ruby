@@ -1,4 +1,5 @@
 require "postproxy"
+require "securerandom"
 
 client = PostProxy::Client.new(
   ENV.fetch("POSTPROXY_API_KEY"),
@@ -18,8 +19,28 @@ comments.data.each do |comment|
   end
 end
 
-# Create a comment
-new_comment = client.comments.create(post_id, "Thanks for the feedback!", profile_id: profile_id)
+# Filter the per-post list by when PostProxy received the comment
+recent = client.comments.list(post_id, profile_id: profile_id, from: "2026-03-25", to: "2026-03-26")
+puts "Comments received 2026-03-25..26: #{recent.total}"
+
+# List comments across every post in the profile group. Flat: replies come back
+# as their own entries linked by parent_external_id.
+across = client.comments.list_all(profiles: ["instagram"], from: "2026-03-25", per_page: 50)
+puts "Comments across posts: #{across.total}"
+across.data.each do |c|
+  kind = c.parent_external_id ? "reply" : "comment"
+  puts "  [#{c.platform}] #{kind} on post #{c.post_id} — #{c.author_username}: #{c.body}"
+end
+
+# Create a comment. An idempotency key makes the write safe to retry after a
+# dropped connection — the retry replays the original response instead of
+# posting a second comment.
+new_comment = client.comments.create(
+  post_id,
+  "Thanks for the feedback!",
+  profile_id: profile_id,
+  idempotency_key: SecureRandom.uuid
+)
 puts "Created: #{new_comment.id} (status: #{new_comment.status})"
 
 # Reply to a comment

@@ -220,4 +220,68 @@ RSpec.describe "PostProxy types" do
       expect(h).not_to have_key(:twitter)
     end
   end
+
+  describe PostProxy::InstagramUserTag do
+    it "serializes user tags as plain hashes, dropping unset coordinates" do
+      params = PostProxy::PlatformParams.new(
+        instagram: PostProxy::InstagramParams.new(
+          format: "post",
+          user_tags: [
+            { username: "natgeo", x: 0.5, y: 0.4 },
+            { username: "nasa", x: 0.2, y: 0.8, media_index: 1 },
+            # Video slides are tagged by username only.
+            { username: "spacex", media_index: 2 }
+          ]
+        )
+      )
+
+      tags = params.to_h[:instagram][:user_tags]
+      expect(tags.length).to eq(3)
+      expect(tags[0]).to eq({ username: "natgeo", x: 0.5, y: 0.4 })
+      expect(tags[2]).to eq({ username: "spacex", media_index: 2 })
+    end
+  end
+
+  describe PostProxy::StatsRecord do
+    it "carries raw_stats alongside stats" do
+      record = PostProxy::StatsRecord.new(
+        stats: { impressions: 1200 },
+        raw_stats: { views: 1200, impression_count: 1200 },
+        recorded_at: "2026-02-20T12:00:00Z"
+      )
+
+      expect(record.raw_stats[:views]).to eq(1200)
+      expect(record.recorded_at).to be_a(Time)
+    end
+
+    it "defaults raw_stats to an empty hash when absent" do
+      record = PostProxy::StatsRecord.new(stats: {}, recorded_at: "2026-02-20T12:00:00Z")
+      expect(record.raw_stats).to eq({})
+    end
+  end
+
+  describe PostProxy::PostSync do
+    it "parses timestamps and counts" do
+      sync = PostProxy::PostSync.new(
+        id: "sync456def",
+        profile_id: "prof123abc",
+        kind: "posts",
+        trigger: "backfill",
+        status: "running",
+        started_at: "2026-08-06T09:15:02.000Z",
+        completed_at: nil,
+        posts_seen: 150,
+        posts_imported: 143,
+        backfill_from: "2025-01-01T00:00:00.000Z",
+        oldest_posted_at: "2025-11-04T18:22:00.000Z",
+        error: nil,
+        created_at: "2026-08-06T09:15:00.000Z"
+      )
+
+      expect(sync.trigger).to eq("backfill")
+      expect(sync.posts_imported).to be < sync.posts_seen
+      expect(sync.started_at).to be_a(Time)
+      expect(sync.completed_at).to be_nil
+    end
+  end
 end
