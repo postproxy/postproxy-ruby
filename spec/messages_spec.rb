@@ -95,6 +95,66 @@ RSpec.describe PostProxy::Resources::Messages do
         }
     end
 
+    it "sends quick replies, accepting models and hashes" do
+      stub_api(:post, "/chats/#{chat_id}/messages",
+        body: mock_outbound.merge(
+          quick_replies: [{ content_type: "text", title: "Track order", payload: "TRACK" }]
+        ))
+
+      msg = client.messages.send(chat_id, body: "What can I help with?",
+        quick_replies: [
+          PostProxy::QuickReply.new(title: "Track order", payload: "TRACK"),
+          { title: "Talk to support", payload: "HELP" }
+        ])
+
+      expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/chats/#{chat_id}/messages")
+        .with { |req|
+          JSON.parse(req.body)["quick_replies"] == [
+            { "title" => "Track order", "payload" => "TRACK" },
+            { "title" => "Talk to support", "payload" => "HELP" }
+          ]
+        }
+
+      expect(msg.quick_replies.first).to be_a(PostProxy::QuickReply)
+      expect(msg.quick_replies.first.content_type).to eq("text")
+    end
+
+    it "sends buttons with a card" do
+      stub_api(:post, "/chats/#{chat_id}/messages",
+        body: mock_outbound.merge(
+          buttons: [{ type: "web_url", title: "Track", url: "https://shop.example.com" }],
+          card: { subtitle: "Arriving Friday" }
+        ))
+
+      msg = client.messages.send(chat_id, body: "Your order shipped",
+        buttons: [
+          PostProxy::MessageButton.new(type: "web_url", title: "Track", url: "https://shop.example.com"),
+          { type: "postback", title: "Cancel", payload: "CANCEL:123" }
+        ],
+        card: PostProxy::MessageCard.new(
+          subtitle: "Arriving Friday",
+          default_action: { type: "web_url", url: "https://shop.example.com" }
+        ))
+
+      expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/chats/#{chat_id}/messages")
+        .with { |req|
+          body = JSON.parse(req.body)
+          body["buttons"] == [
+            { "type" => "web_url", "title" => "Track", "url" => "https://shop.example.com" },
+            { "type" => "postback", "title" => "Cancel", "payload" => "CANCEL:123" }
+          ] &&
+            body["card"] == {
+              "subtitle" => "Arriving Friday",
+              "default_action" => { "type" => "web_url", "url" => "https://shop.example.com" }
+            }
+        }
+
+      expect(msg.buttons.first).to be_a(PostProxy::MessageButton)
+      expect(msg.buttons.first.url).to eq("https://shop.example.com")
+      expect(msg.card).to be_a(PostProxy::MessageCard)
+      expect(msg.card.subtitle).to eq("Arriving Friday")
+    end
+
     it "sends media URLs as JSON" do
       stub_api(:post, "/chats/#{chat_id}/messages", body: mock_outbound)
 
@@ -131,6 +191,31 @@ RSpec.describe PostProxy::Resources::Messages do
 
       msg = client.messages.get("msg_111")
       expect(msg.id).to eq("msg_111")
+    end
+
+    it "parses tapped_action on an inbound tap" do
+      stub_api(:get, "/messages/msg_333",
+        body: mock_inbound.merge(
+          id: "msg_333",
+          body: "Track order",
+          tapped_action: { kind: "quick_reply", payload: "TRACK", title: "Track order" }
+        ))
+
+      msg = client.messages.get("msg_333")
+      expect(msg.tapped_action).to be_a(PostProxy::TappedAction)
+      expect(msg.tapped_action.kind).to eq("quick_reply")
+      expect(msg.tapped_action.payload).to eq("TRACK")
+      expect(msg.tapped_action.title).to eq("Track order")
+    end
+
+    it "leaves interactive fields nil when the API omits them" do
+      stub_api(:get, "/messages/msg_111", body: mock_inbound)
+
+      msg = client.messages.get("msg_111")
+      expect(msg.quick_replies).to be_nil
+      expect(msg.buttons).to be_nil
+      expect(msg.card).to be_nil
+      expect(msg.tapped_action).to be_nil
     end
   end
 

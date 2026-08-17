@@ -22,9 +22,16 @@ module PostProxy
         )
       end
 
+      # quick_replies, buttons, and card are Facebook and Instagram only — they
+      # return 422 on Telegram and Bluesky, where reply_markup is the
+      # equivalent. They are sent on the JSON path only, so pass media as hosted
+      # URLs rather than media_files when combining with an attachment.
+      #
+      # Each accepts model instances or plain hashes.
       def send_message(chat_id, body: nil, media: nil, media_files: nil, tag: nil,
-                       reply_to_external_id: nil, reply_markup: nil, profile_group_id: nil,
-                       idempotency_key: nil)
+                       reply_to_external_id: nil, reply_markup: nil,
+                       quick_replies: nil, buttons: nil, card: nil,
+                       profile_group_id: nil, idempotency_key: nil)
         has_files = media_files && !media_files.empty?
 
         if has_files
@@ -58,6 +65,9 @@ module PostProxy
           json_body[:tag] = tag if tag
           json_body[:reply_to_external_id] = reply_to_external_id if reply_to_external_id
           json_body[:reply_markup] = reply_markup if reply_markup
+          json_body[:quick_replies] = quick_replies.map { |q| serialize_interactive(q) } if quick_replies
+          json_body[:buttons] = buttons.map { |b| serialize_interactive(b) } if buttons
+          json_body[:card] = serialize_interactive(card) if card
 
           result = @client.request(:post, "/chats/#{chat_id}/messages",
             json: json_body,
@@ -110,6 +120,13 @@ module PostProxy
       end
 
       private
+
+      # Interactive params accept model instances or plain hashes. Models expose
+      # to_h with nils dropped, so an omitted content_type stays omitted rather
+      # than being sent as null.
+      def serialize_interactive(value)
+        value.respond_to?(:to_h) && !value.is_a?(Hash) ? value.to_h : value
+      end
 
       def mime_type_for(filename)
         case File.extname(filename).downcase

@@ -49,6 +49,40 @@ client.messages.send(chat.id, media: ["https://cdn.example.com/photo.png"])
 #   reply_markup: { inline_keyboard: [[{ text: "Track order", callback_data: "track:1" }]] }
 # )
 
+# Quick replies — tappable chips above the composer, gone once tapped.
+# Facebook & Instagram only; up to 13.
+client.messages.send(
+  chat.id,
+  body: "What can I help with?",
+  quick_replies: [
+    PostProxy::QuickReply.new(title: "Track order", payload: "TRACK"),
+    PostProxy::QuickReply.new(title: "Talk to support", payload: "HELP")
+  ]
+)
+
+# Buttons — attached to the message and stay in the thread. Up to 3, and body is
+# capped at 80 characters when buttons are present (Meta's limit). card adds
+# subtitle / image / tap-through to the same card.
+client.messages.send(
+  chat.id,
+  body: "Your order shipped",
+  buttons: [
+    PostProxy::MessageButton.new(type: "web_url", title: "Track", url: "https://shop.example.com/o/123"),
+    PostProxy::MessageButton.new(type: "postback", title: "Cancel", payload: "CANCEL:123")
+  ],
+  card: PostProxy::MessageCard.new(
+    subtitle: "Arriving Friday",
+    image_url: "https://cdn.example.com/shoe.png"
+  )
+)
+
+# A tap comes back as an inbound message carrying tapped_action.
+client.messages.list(chat.id, direction: "inbound").data.each do |msg|
+  next unless msg.tapped_action
+
+  puts "  tapped #{msg.tapped_action.kind}: #{msg.tapped_action.payload}"
+end
+
 # React / unreact (Facebook & Instagram)
 client.messages.react(sent.id, reaction: "love", emoji: "❤️")
 client.messages.unreact(sent.id)

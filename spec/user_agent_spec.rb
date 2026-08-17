@@ -14,6 +14,6 @@ RSpec.describe "User-Agent header" do
   end
 
   it "has bumped VERSION constant" do
-    expect(PostProxy::VERSION).to eq("1.12.0")
+    expect(PostProxy::VERSION).to eq("1.13.0")
   end
 end

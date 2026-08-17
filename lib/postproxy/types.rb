@@ -429,11 +429,94 @@ module PostProxy
     end
   end
 
+  # A tappable chip above the participant's composer, gone once tapped.
+  # Facebook and Instagram only; up to 13 per send. +content_type+ is optional
+  # on send (only "text" is accepted) and always present on responses.
+  class QuickReply < Model
+    attr_accessor :content_type, :title, :payload
+
+    def initialize(**attrs)
+      @content_type = nil
+      super
+    end
+
+    def to_h
+      { content_type: @content_type, title: @title, payload: @payload }.compact
+    end
+  end
+
+  # A button attached to the message, delivered as a Meta generic template.
+  # Facebook and Instagram only; up to 3 per send. +url+ is required and must be
+  # https when +type+ is "web_url"; +payload+ is required when +type+ is
+  # "postback". +type+ is a plain string rather than an enum so a new Meta
+  # button type needs no SDK release.
+  class MessageButton < Model
+    attr_accessor :type, :title, :url, :payload
+
+    def initialize(**attrs)
+      @url = nil
+      @payload = nil
+      super
+    end
+
+    def to_h
+      { type: @type, title: @title, url: @url, payload: @payload }.compact
+    end
+  end
+
+  class CardDefaultAction < Model
+    attr_accessor :type, :url
+
+    def to_h
+      { type: @type, url: @url }.compact
+    end
+  end
+
+  # Extra fields for the generic-template element that carries +buttons+.
+  # Requires +buttons+. +subtitle+ is capped at 80 characters, and both URLs
+  # must be https.
+  class MessageCard < Model
+    attr_accessor :subtitle, :image_url, :default_action
+
+    def initialize(**attrs)
+      @subtitle = nil
+      @image_url = nil
+      @default_action = nil
+      super
+      if @default_action && !@default_action.is_a?(CardDefaultAction)
+        @default_action = CardDefaultAction.new(**@default_action.transform_keys(&:to_sym))
+      end
+    end
+
+    def to_h
+      {
+        subtitle: @subtitle,
+        image_url: @image_url,
+        default_action: @default_action&.to_h
+      }.compact
+    end
+  end
+
+  # Set on inbound messages created by a tap on an element you sent. Derived
+  # from platform_data rather than stored, so it also resolves for taps ingested
+  # before PostProxy exposed this field. +kind+ is one of "quick_reply",
+  # "postback", or "callback_query" — the last is Telegram, so this is not
+  # Meta-only even though the send params are.
+  class TappedAction < Model
+    attr_accessor :kind, :payload, :title
+
+    def initialize(**attrs)
+      @title = nil
+      super
+    end
+  end
+
   class Message < Model
     attr_accessor :id, :chat_id, :external_id, :direction, :body, :status,
                   :tag, :external_comment_id, :error_message, :platform_data,
                   :external_posted_at, :external_delivered_at, :external_read_at,
                   :external_edited_at, :reply_to_external_id, :reply_markup,
+                  :quick_replies, :buttons, :card, :tapped_action,
                   :external_deleted_at, :reactions, :attachments,
                   :is_unsupported, :created_at
 
@@ -450,6 +533,10 @@ module PostProxy
       @external_edited_at = nil
       @reply_to_external_id = nil
       @reply_markup = nil
+      @quick_replies = nil
+      @buttons = nil
+      @card = nil
+      @tapped_action = nil
       @external_deleted_at = nil
       @reactions = []
       @attachments = []
@@ -466,6 +553,20 @@ module PostProxy
       end
       @attachments = (@attachments || []).map do |a|
         a.is_a?(Attachment) ? a : Attachment.new(**a.transform_keys(&:to_sym))
+      end
+      # Left nil rather than [] when absent — the API omits these on non-Meta
+      # networks, and an empty array would read as "sent with none".
+      @quick_replies = @quick_replies&.map do |q|
+        q.is_a?(QuickReply) ? q : QuickReply.new(**q.transform_keys(&:to_sym))
+      end
+      @buttons = @buttons&.map do |b|
+        b.is_a?(MessageButton) ? b : MessageButton.new(**b.transform_keys(&:to_sym))
+      end
+      if @card && !@card.is_a?(MessageCard)
+        @card = MessageCard.new(**@card.transform_keys(&:to_sym))
+      end
+      if @tapped_action && !@tapped_action.is_a?(TappedAction)
+        @tapped_action = TappedAction.new(**@tapped_action.transform_keys(&:to_sym))
       end
     end
 
