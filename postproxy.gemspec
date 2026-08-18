@@ -3,11 +3,11 @@ require_relative "lib/postproxy/version"
 Gem::Specification.new do |spec|
   spec.name          = "postproxy-sdk"
   spec.version       = PostProxy::VERSION
-  spec.authors       = ["PostProxy"]
+  spec.authors       = ["Postproxy"]
   spec.email         = ["support@postproxy.dev"]
 
-  spec.summary       = "Ruby client for the PostProxy API"
-  spec.description   = "Ruby client for the PostProxy API — manage social media posts, profiles, and profile groups."
+  spec.summary       = "Ruby client for the Postproxy API"
+  spec.description   = "Ruby client for the Postproxy API — manage social media posts, profiles, and profile groups."
   spec.homepage      = "https://postproxy.dev"
   spec.license       = "MIT"
   spec.required_ruby_version = ">= 3.1"
