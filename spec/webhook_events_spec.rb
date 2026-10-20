@@ -150,3 +150,91 @@ RSpec.describe PostProxy::WebhookEvents do
     expect { described_class.parse("not json{") }.to raise_error(PostProxy::WebhookParseError)
   end
 end
+
+RSpec.describe PostProxy::WebhookEvents, "events added since 1.13" do
+  def envelope(type, data)
+    { id: "evt_1", type: type, created_at: "2026-10-01T00:00:00Z", data: data }.to_json
+  end
+
+  {
+    "platform_post.edited" => PostProxy::WebhookEvents::PlatformPostData,
+    "platform_post.edit_failed" => PostProxy::WebhookEvents::PlatformPostData,
+    "profile.placements_synced" => PostProxy::WebhookEvents::PlacementsSyncedData,
+    "placement.orphaned" => PostProxy::WebhookEvents::PlacementEventData,
+    "placement.restored" => PostProxy::WebhookEvents::PlacementEventData,
+    "comment.failed" => PostProxy::WebhookEvents::CommentCreatedData,
+    "comment.failed_waiting_for_retry" => PostProxy::WebhookEvents::CommentCreatedData,
+    "comment.delivery_unconfirmed" => PostProxy::WebhookEvents::CommentCreatedData,
+    "comment.edited" => PostProxy::WebhookEvents::CommentCreatedData,
+    "comment.edit_failed" => PostProxy::WebhookEvents::CommentCreatedData,
+    "profile_comment.failed" => PostProxy::WebhookEvents::ProfileCommentCreatedData,
+    "profile_comment.failed_waiting_for_retry" => PostProxy::WebhookEvents::ProfileCommentCreatedData,
+    "profile_comment.deleted" => PostProxy::WebhookEvents::ProfileCommentCreatedData,
+    "referral.received" => PostProxy::WebhookEvents::ReferralEventData,
+    "message_template.status_updated" => PostProxy::WebhookEvents::MessageTemplateEventData,
+    "message_template.category_updated" => PostProxy::WebhookEvents::MessageTemplateEventData,
+    "placement.name_status_updated" => PostProxy::WebhookEvents::PlacementEventData,
+    "placement.quality_updated" => PostProxy::WebhookEvents::PlacementEventData,
+    "whatsapp.automatic_event" => PostProxy::WebhookEvents::WhatsAppAutomaticEventData
+  }.each do |type, data_class|
+    it "parses #{type}" do
+      event = described_class.parse(envelope(type, { id: "x" }))
+      expect(event.type).to eq(type)
+      expect(event.data).to be_a(data_class)
+    end
+  end
+
+  it "covers every type in WEBHOOK_EVENT_TYPES" do
+    expect(PostProxy::WEBHOOK_EVENT_TYPES.sort).to eq(described_class::DATA_CLASSES.keys.sort)
+  end
+
+  it "parses message_template.status_updated" do
+    event = described_class.parse(envelope("message_template.status_updated", {
+      id: "tpl_1", external_id: "998877", profile_id: "prof_wa", platform: "whatsapp",
+      name: "order_update", language: "en_US", category: "UTILITY", status: "APPROVED",
+      rejected_reason: nil, quality_score: nil
+    }))
+    expect(event.data.status).to eq("APPROVED")
+    expect(event.data.name).to eq("order_update")
+  end
+
+  it "parses profile.placements_synced with nested placements" do
+    event = described_class.parse(envelope("profile.placements_synced", {
+      id: "pf1", name: "Acme", platform: "facebook", profile_group_id: "g1", status: "active",
+      uid: "u1", platform_id: "fb_1", username: nil, placements_sync_status: "completed",
+      placements: [{ id: "page_1", name: "Acme Page", platform: "facebook", profile_id: "pf1",
+                     profile_name: "Acme", profile_group_id: "g1", metadata: {} }]
+    }))
+    expect(event.data.platform_id).to eq("fb_1")
+    expect(event.data.placements.first).to be_a(PostProxy::WebhookEvents::PlacementEventData)
+    expect(event.data.placements.first.name).to eq("Acme Page")
+  end
+
+  it "parses referral.received with its chat" do
+    event = described_class.parse(envelope("referral.received", {
+      chat: { id: "chat_1", profile_id: "prof_wa", platform: "whatsapp", group: false,
+              participant_external_id: "15551234567" },
+      source: "ad", ctwa_clid: "clid_1"
+    }))
+    expect(event.data.chat).to be_a(PostProxy::WebhookEvents::WebhookChatData)
+    expect(event.data.chat.participant_external_id).to eq("15551234567")
+    expect(event.data.ctwa_clid).to eq("clid_1")
+  end
+
+  it "parses comment.failed with error details" do
+    event = described_class.parse(envelope("comment.failed", {
+      id: "c1", body: "hi", status: "failed", profile_id: "pf1", error: "Rejected",
+      error_details: { platform_error_code: 100, platform_error_message: "Bad" }
+    }))
+    expect(event.data.error).to eq("Rejected")
+    expect(event.data.error_details).to be_a(PostProxy::ErrorDetails)
+  end
+
+  it "parses placement.quality_updated extras" do
+    event = described_class.parse(envelope("placement.quality_updated", {
+      id: "pn_1", name: "+1 555", platform: "whatsapp", profile_id: "prof_wa",
+      event: "UPGRADE", current_limit: "TIER_10K", old_limit: "TIER_1K"
+    }))
+    expect(event.data.current_limit).to eq("TIER_10K")
+  end
+end

@@ -211,3 +211,122 @@ RSpec.describe PostProxy::Resources::Profiles do
     end
   end
 end
+
+RSpec.describe PostProxy::Resources::Profiles, "stats, mentions, chat syncs" do
+  let(:client) { new_client }
+
+  def json_response(body)
+    { status: 200, body: body.to_json, headers: { "Content-Type" => "application/json" } }
+  end
+
+  it "fetches daily stats with attribution" do
+    stub = stub_api(:get, "/profiles/p1/daily_stats",
+      body: { data: {
+        profile_id: "p1", platform: "instagram", placement_id: "pl1", attribution: "publish",
+        from: "2026-09-01", to: "2026-09-30", data_timezone: "UTC",
+        records: [{ date: "2026-09-01", impressions: 10, platform_stats: nil }],
+        metrics: { impressions: { label: "Impressions" } }
+      } },
+      query: { placement_id: "pl1", from: "2026-09-01", to: "2026-09-30", attribution: "publish" })
+
+    result = client.profiles.daily_stats("p1",
+      placement_id: "pl1", from: "2026-09-01", to: "2026-09-30", attribution: "publish")
+    expect(stub).to have_been_requested
+    expect(result).to be_a(PostProxy::DailyStatsResponse)
+    expect(result.data).to be_a(PostProxy::DailyStats)
+    expect(result.data.attribution).to eq("publish")
+    record = result.data.records.first
+    expect(record).to be_a(PostProxy::DailyStatsRecord)
+    expect(record.date).to eq("2026-09-01")
+    expect(record[:impressions]).to eq(10)
+    expect(record.values).to eq(impressions: 10)
+  end
+
+  it "fetches follower history" do
+    stub = stub_api(:get, "/profiles/p1/follower_history",
+      body: { data: { profile_id: "p1", records: [{ date: "2026-09-01", followers_total: 120 }] } },
+      query: { from: "2026-09-01" })
+
+    result = client.profiles.follower_history("p1", from: "2026-09-01")
+    expect(stub).to have_been_requested
+    expect(result.data.records.first).to be_a(PostProxy::FollowerHistoryRecord)
+    expect(result.data.records.first.followers_total).to eq(120)
+  end
+
+  it "fetches participant status" do
+    stub_api(:get, "/profiles/p1/participants/igsid_1", body: { is_verified_user: true, fetched_at: "x" })
+
+    result = client.profiles.participant_status("p1", "igsid_1")
+    expect(result).to be_a(PostProxy::ParticipantStatus)
+    expect(result.is_verified_user).to be true
+  end
+
+  it "resolves a LinkedIn mention" do
+    stub = stub_api(:get, "/profiles/p1/resolve_mention",
+      body: { urn: "urn:li:organization:1", type: "organization", name: "Acme", vanity_name: "acme" },
+      query: { url: "https://www.linkedin.com/company/acme" })
+
+    result = client.profiles.resolve_mention("p1", "https://www.linkedin.com/company/acme")
+    expect(stub).to have_been_requested
+    expect(result).to be_a(PostProxy::ResolvedMention)
+    expect(result.urn).to eq("urn:li:organization:1")
+  end
+
+  it "searches Instagram audio" do
+    stub = stub_api(:get, "/profiles/p1/instagram/available_audio",
+      body: { data: [{ id: "a1" }] }, query: { audio_type: "music", search_query: "summer" })
+
+    result = client.profiles.instagram_available_audio("p1", audio_type: "music", search_query: "summer")
+    expect(stub).to have_been_requested
+    expect(result[:data].first[:id]).to eq("a1")
+  end
+
+  it "reads and updates a Facebook Page" do
+    read = stub_api(:get, "/profiles/p1/facebook/page", body: { about: "Hi" },
+      query: { page_id: "page_1", fields: "about,website" })
+    update = stub_request(:patch, "#{BASE_URL}/api/profiles/p1/facebook/update_page")
+      .with(body: { about: "New about", page_id: "page_1" })
+      .to_return(json_response({ success: true }))
+
+    page = client.profiles.facebook_page("p1", "page_1", fields: "about,website")
+    client.profiles.update_facebook_page("p1", "page_1", { about: "New about" })
+
+    expect(page[:about]).to eq("Hi")
+    [read, update].each { |s| expect(s).to have_been_requested }
+  end
+
+  it "moves a profile to another group" do
+    stub = stub_request(:patch, "#{BASE_URL}/api/profiles/p1/assign_to_group")
+      .with(body: { target_profile_group_id: "pg_2" })
+      .to_return(json_response({ id: "p1", name: "Acme", status: "active", platform: "instagram",
+                                 profile_group_id: "pg_2" }))
+
+    profile = client.profiles.assign_to_group("p1", "pg_2")
+    expect(stub).to have_been_requested
+    expect(profile).to be_a(PostProxy::Profile)
+    expect(profile.profile_group_id).to eq("pg_2")
+  end
+
+  it "starts and lists chat backfills" do
+    sync = { id: "cs1", profile_id: "p1", kind: "chats", trigger: "backfill", status: "pending",
+             chats_seen: 0, messages_imported: 0, backfill_from: "2026-01-01T00:00:00Z",
+             created_at: "2026-09-01T00:00:00Z" }
+    start = stub_request(:post, "#{BASE_URL}/api/profiles/p1/backfill_chats")
+      .with(body: { from: "2026-01-01T00:00:00Z" })
+      .to_return(json_response(sync))
+    list = stub_api(:get, "/profiles/p1/chat_syncs",
+      body: { total: 1, page: 1, per_page: 5, data: [sync] }, query: { status: "running", per_page: "5" })
+    one = stub_api(:get, "/profiles/p1/chat_syncs/cs1", body: sync)
+
+    run = client.profiles.backfill_chats("p1", from: "2026-01-01T00:00:00Z")
+    runs = client.profiles.chat_syncs("p1", status: "running", per_page: 5)
+    client.profiles.chat_sync("p1", "cs1")
+
+    expect(run).to be_a(PostProxy::ChatSync)
+    expect(run.chats_seen).to eq(0)
+    expect(run.backfill_from).to be_a(Time)
+    expect(runs).to be_a(PostProxy::PaginatedResponse)
+    expect(runs.data.first).to be_a(PostProxy::ChatSync)
+    [start, list, one].each { |s| expect(s).to have_been_requested }
+  end
+end

@@ -83,3 +83,15 @@ poll_post = client.posts.create(
   )
 )
 puts "Poll post: #{poll_post.id}"
+
+# TikTok video with a custom cover uploaded from disk (the request switches to
+# multipart). A base64 data URL ("data:image/jpeg;base64,...") works too.
+cover_post = client.posts.create(
+  "Behind the scenes",
+  profiles: [tiktok_profile.id],
+  media: ["https://example.com/bts.mp4"],
+  platforms: PostProxy::PlatformParams.new(
+    tiktok: PostProxy::TikTokParams.new(format: "video", cover_file: "./cover.jpg")
+  )
+)
+puts "Cover post: #{cover_post.id}"

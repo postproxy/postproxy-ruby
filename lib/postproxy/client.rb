@@ -10,6 +10,11 @@ require_relative "resources/comments"
 require_relative "resources/profile_comments"
 require_relative "resources/chats"
 require_relative "resources/messages"
+require_relative "resources/placements"
+require_relative "resources/api_keys"
+require_relative "resources/google_business"
+require_relative "resources/whatsapp_templates"
+require_relative "resources/whatsapp"
 
 module PostProxy
   class Client
@@ -29,6 +34,11 @@ module PostProxy
       @profile_comments = nil
       @chats = nil
       @messages = nil
+      @placements = nil
+      @api_keys = nil
+      @google_business = nil
+      @whatsapp_templates = nil
+      @whatsapp = nil
     end
 
     def posts
@@ -67,8 +77,30 @@ module PostProxy
       @messages ||= Resources::Messages.new(self)
     end
 
+    def placements
+      @placements ||= Resources::Placements.new(self)
+    end
+
+    def api_keys
+      @api_keys ||= Resources::ApiKeys.new(self)
+    end
+
+    def google_business
+      @google_business ||= Resources::GoogleBusiness.new(self)
+    end
+
+    def whatsapp_templates
+      @whatsapp_templates ||= Resources::WhatsAppTemplates.new(self)
+    end
+
+    def whatsapp
+      @whatsapp ||= Resources::WhatsApp.new(self)
+    end
+
+    # `raw: true` returns the body bytes and content type instead of parsing
+    # JSON (used for binary downloads).
     def request(method, path, params: nil, json: nil, data: nil, files: nil, profile_group_id: nil,
-      idempotency_key: nil)
+      idempotency_key: nil, headers: nil, raw: false)
       url = "/api#{path}"
 
       query = {}
@@ -92,18 +124,24 @@ module PostProxy
                        parts << [field, Faraday::Multipart::FilePart.new(io, content_type, filename)]
                      end
                    end
-                   # Build payload preserving duplicate keys
-                   payload = parts.each_with_object({}) do |(key, val), h|
-                     if h.key?(key)
-                       h[key] = [h[key]] unless h[key].is_a?(Array)
-                       h[key] << val
+                   # Build payload preserving duplicate keys. Repeated "foo[]"
+                   # parts are grouped under "foo" — Faraday appends "[]" to
+                   # each array item itself.
+                   grouped = parts.group_by(&:first)
+                   payload = grouped.each_with_object({}) do |(key, pairs), h|
+                     values = pairs.map(&:last)
+                     if values.size == 1
+                       h[key] = values.first
+                     elsif key.end_with?("[]")
+                       h[key.delete_suffix("[]")] = values
                      else
-                       h[key] = val
+                       h[key] = values
                      end
                    end
                    conn.send(method, url) do |req|
                      req.params = query unless query.empty?
                      req.headers["Idempotency-Key"] = idempotency_key if idempotency_key
+                     headers&.each { |k, v| req.headers[k] = v }
                      req.body = payload
                    end
                  else
@@ -111,9 +149,14 @@ module PostProxy
                    conn.send(method, url) do |req|
                      req.params = query unless query.empty?
                      req.headers["Idempotency-Key"] = idempotency_key if idempotency_key
+                     headers&.each { |k, v| req.headers[k] = v }
                      req.body = json.to_json if json
                    end
                  end
+
+      if raw && (200..299).cover?(response.status)
+        return RawResponse.new(data: response.body.to_s.b, content_type: response.headers["content-type"])
+      end
 
       handle_response(response)
     end
@@ -155,6 +198,21 @@ module PostProxy
           error_message(body),
           status_code: response.status,
           response: body
+        )
+      when 403
+        body = parse_error_body(response)
+        raise ForbiddenError.new(
+          error_message(body),
+          status_code: response.status,
+          response: body
+        )
+      when 429
+        body = parse_error_body(response)
+        raise RateLimitError.new(
+          error_message(body),
+          status_code: response.status,
+          response: body,
+          retry_after: parse_retry_after(response.headers["retry-after"])
         )
       when 404
         body = parse_error_body(response)
@@ -198,6 +256,13 @@ module PostProxy
       JSON.parse(response.body, symbolize_names: true)
     rescue JSON::ParserError, TypeError
       { error: response.body }
+    end
+
+    def parse_retry_after(value)
+      seconds = Float(value.to_s, exception: false)
+      return nil if seconds.nil? || !seconds.finite? || seconds <= 0
+
+      seconds == seconds.to_i ? seconds.to_i : seconds
     end
 
     def error_message(body)

@@ -22,11 +22,14 @@ module PostProxy
         )
       end
 
+      # `placement_id` is required for WhatsApp: the phone number id from
+      # `profiles.placements`.
       def create(profile_id, participant_external_id, participant_username: nil, participant_name: nil,
-        profile_group_id: nil, idempotency_key: nil)
+        placement_id: nil, profile_group_id: nil, idempotency_key: nil)
         json_body = { participant_external_id: participant_external_id }
         json_body[:participant_username] = participant_username if participant_username
         json_body[:participant_name] = participant_name if participant_name
+        json_body[:placement_id] = placement_id if placement_id
 
         result = @client.request(:post, "/profiles/#{profile_id}/chats",
           json: json_body,
@@ -55,6 +58,32 @@ module PostProxy
           idempotency_key: idempotency_key
         )
         Chat.new(**result)
+      end
+
+      # Mark the latest inbound message as read (shows the read receipt).
+      def mark_read(chat_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:post, "/chats/#{chat_id}/mark_read",
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        Chat.new(**result)
+      end
+
+      # Typing indicator. Facebook, Instagram and WhatsApp only.
+      def start_typing(chat_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:post, "/chats/#{chat_id}/start_typing",
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        AcceptedResponse.new(**result)
+      end
+
+      def stop_typing(chat_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:post, "/chats/#{chat_id}/stop_typing",
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        AcceptedResponse.new(**result)
       end
 
       private

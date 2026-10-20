@@ -99,6 +99,37 @@ RSpec.describe PostProxy::Client do
     end
   end
 
+  describe "403 and 429" do
+    it "raises ForbiddenError on 403" do
+      stub_api(:get, "/profiles", status: 403, body: { error: "Account is past due" })
+
+      expect { new_client.profiles.list }.to raise_error(PostProxy::ForbiddenError) do |e|
+        expect(e.status_code).to eq(403)
+        expect(e.message).to eq("Account is past due")
+      end
+    end
+
+    it "raises RateLimitError on 429 with retry_after" do
+      stub_request(:get, "#{BASE_URL}/api/profiles")
+        .to_return(status: 429, body: { error: "rate limited" }.to_json,
+                   headers: { "Content-Type" => "application/json", "Retry-After" => "30" })
+
+      expect { new_client.profiles.list }.to raise_error(PostProxy::RateLimitError) do |e|
+        expect(e).to be_a(PostProxy::Error)
+        expect(e.status_code).to eq(429)
+        expect(e.retry_after).to eq(30)
+      end
+    end
+
+    it "leaves retry_after nil without a usable Retry-After header" do
+      stub_api(:get, "/profiles", status: 429, body: { error: "rate limited" })
+
+      expect { new_client.profiles.list }.to raise_error(PostProxy::RateLimitError) do |e|
+        expect(e.retry_after).to be_nil
+      end
+    end
+  end
+
   describe "idempotency" do
     it "sends the Idempotency-Key header when a key is given" do
       stub = stub_request(:post, "#{BASE_URL}/api/profile_groups")

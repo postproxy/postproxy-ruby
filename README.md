@@ -109,6 +109,17 @@ post = client.posts.create(
   media_files: ["/path/to/photo.jpg"]
 )
 
+# Media items can be URL strings or { url: } hashes
+post = client.posts.create(
+  "Photos",
+  profiles: ["prof-1"],
+  media: ["https://example.com/1.jpg", { url: "https://example.com/2.jpg" }]
+)
+
+# Skip the duplicate check (otherwise an identical post submitted moments ago
+# raises ConflictError)
+post = client.posts.create("Same text again", profiles: ["prof-1"], skip_duplicate_check: true)
+
 # Create a draft
 draft = client.posts.create("Draft", profiles: ["prof-1"], draft: true)
 
@@ -132,6 +143,17 @@ post = client.posts.create(
   ]
 )
 post.thread.each { |child| puts "#{child.id}: #{child.body}" }
+# Each thread item is delivered on its own; its platforms show whether it went out
+post.thread.each { |child| puts child.platforms.map { |p| "#{p.platform}: #{p.status}" } }
+
+# Edit a post that's already published. Only the body, the YouTube title and
+# the Pinterest title / destination_link can change; anything else is a 422.
+# The edit is pushed to the platforms in the background — watch for the
+# platform_post.edited / platform_post.edit_failed webhooks.
+client.posts.update("published-post-id",
+  body: "Fixed a typo",
+  platforms: { youtube: { title: "Better title" } }
+)
 
 # Delete a post
 client.posts.delete("post-id")
@@ -294,7 +316,11 @@ PostProxy::WebhookSignature.verify(
 
 Subscribe to any of these events (or pass `["*"]` for all):
 
-`post.processed`, `post.imported`, `platform_post.published`, `platform_post.failed`, `platform_post.failed_waiting_for_retry`, `platform_post.insights`, `profile.connected`, `profile.disconnected`, `profile.stats`, `media.failed`, `comment.created`, `profile_comment.created`, `message.received`, `message.sent`, `message.delivered`, `message.read`, `message.edited`, `message.deleted`, `message.failed_waiting_for_retry`, `message.failed`, `reaction.received`.
+- **Posts:** `post.processed`, `post.imported`, `platform_post.published`, `platform_post.failed`, `platform_post.failed_waiting_for_retry`, `platform_post.edited`, `platform_post.edit_failed`, `platform_post.insights`, `media.failed`
+- **Profiles:** `profile.connected`, `profile.disconnected`, `profile.stats`, `profile.placements_synced`, `placement.orphaned`, `placement.restored`
+- **Comments:** `comment.created`, `comment.failed`, `comment.failed_waiting_for_retry`, `comment.delivery_unconfirmed`, `comment.edited`, `comment.edit_failed`, `profile_comment.created`, `profile_comment.failed`, `profile_comment.failed_waiting_for_retry`, `profile_comment.deleted`
+- **Messages:** `message.received`, `message.sent`, `message.delivered`, `message.read`, `message.edited`, `message.deleted`, `message.failed_waiting_for_retry`, `message.failed`, `reaction.received`, `referral.received`
+- **WhatsApp:** `message_template.status_updated`, `message_template.category_updated`, `placement.name_status_updated`, `placement.quality_updated`, `whatsapp.automatic_event`
 
 `PostProxy::WebhookEvents.parse` validates the envelope and returns a typed `Event` — `event.data` is the right model for the event:
 
@@ -316,10 +342,15 @@ when "reaction.received"
 when "profile_comment.created"
   # ProfileCommentCreatedData
   puts "#{event.data.author_username}: #{event.data.body}"
+when "platform_post.edited"
+  puts "Edit went live on #{event.data.platform}"
+when "message_template.status_updated"
+  # MessageTemplateEventData
+  puts "#{event.data.name}: #{event.data.status}"
 end
 ```
 
-The direct-message events (`message.*`) carry a `MessageEventData` (`data.message` is a full `Message`); `reaction.received` carries a `ReactionEventData`; `profile_comment.created` carries a `ProfileCommentCreatedData`.
+The direct-message events (`message.*`) carry a `MessageEventData` (`data.message` is a full `Message`); `reaction.received` carries a `ReactionEventData`; the `profile_comment.*` events carry a `ProfileCommentCreatedData` and the `comment.*` events a `CommentCreatedData` (with `error` / `error_details` on failures). `platform_post.edited` / `edit_failed` reuse `PlatformPostData`; `profile.placements_synced` carries a `PlacementsSyncedData`, the `placement.*` events a `PlacementEventData`, `referral.received` a `ReferralEventData`, `message_template.*` a `MessageTemplateEventData` and `whatsapp.automatic_event` a `WhatsAppAutomaticEventData`.
 
 ## Comments
 
@@ -366,6 +397,14 @@ client.comments.unhide("post-id", "comment-id", profile_id: "profile-id")
 client.comments.like("post-id", "comment-id", profile_id: "profile-id")
 client.comments.unlike("post-id", "comment-id", profile_id: "profile-id")
 
+# Edit a comment you published (Facebook and YouTube). Runs in the
+# background — comment.edited / comment.edit_failed report the outcome.
+client.comments.edit("post-id", "comment-id", "Corrected text", profile_id: "profile-id")
+
+# Pin / unpin a comment (TikTok)
+client.comments.pin("post-id", "comment-id", profile_id: "profile-id")
+client.comments.unpin("post-id", "comment-id", profile_id: "profile-id")
+
 # Synced comments may carry media attachments and author metadata
 comment = client.comments.get("post-id", "comment-id", profile_id: "profile-id")
 comment.attachments.each { |att| puts "#{att.type} #{att.url} (#{att.status})" }
@@ -374,6 +413,20 @@ puts comment.metadata[:follower_count] if comment.metadata
 # Private reply to a comment's author (Instagram/Facebook) — returns a Message
 message = client.comments.private_reply("post-id", "comment-id", profile_id: "profile-id", text: "DM-ing you the details.")
 puts message.chat_id, message.status
+
+# Private replies take the same interactive options as messages.send —
+# quick_replies, buttons, card, and a carousel of elements (text may be empty
+# then). One private reply per comment, within 7 days of it.
+client.comments.private_reply("post-id", "comment-id",
+  profile_id: "profile-id",
+  text: "",
+  elements: [
+    { title: "Red sneaker", image_url: "https://cdn.example.com/red.png",
+      buttons: [{ type: "web_url", title: "Shop", url: "https://shop.example.com/red" }] },
+    { title: "Blue sneaker", image_url: "https://cdn.example.com/blue.png",
+      buttons: [{ type: "web_url", title: "Shop", url: "https://shop.example.com/blue" }] }
+  ]
+)
 ```
 
 ### Comments across posts
@@ -389,6 +442,7 @@ top-level or reply, is its own entry linked to its parent by `parent_external_id
 all = client.comments.list_all(
   profiles: ["instagram", "prof-abc"],  # profile IDs or network names, mixed
   post_ids: ["post-1", "post-2"],       # omit for every post in scope
+  placement_id: "page-123",             # one Facebook Page / LinkedIn org
   from: "2026-03-25",
   per_page: 50                          # max 100
 )
@@ -410,7 +464,7 @@ Results are ordered newest first by receipt time.
 
 ## Direct Messages
 
-Read and send 1:1 messages on DM-capable profiles (Facebook Messenger, Instagram, Telegram, Bluesky). A conversation is a **Chat**; it holds **Messages**. Outbound sends are processed asynchronously (`status` starts as `pending`).
+Read and send 1:1 messages on DM-capable profiles (Facebook Messenger, Instagram, WhatsApp, Telegram, Bluesky). A conversation is a **Chat**; it holds **Messages**. Outbound sends are processed asynchronously (`status` starts as `pending`).
 
 ```ruby
 # List chats for a profile (paginated, most recent first)
@@ -458,6 +512,13 @@ client.messages.unreact(sent.id)
 # Archive / unarchive a chat (Bluesky only)
 client.chats.archive(chat.id)
 client.chats.unarchive(chat.id)
+
+# Mark the latest inbound message read (sends the read receipt on WhatsApp)
+client.chats.mark_read(chat.id)
+
+# Typing indicator (Facebook, Instagram, WhatsApp)
+client.chats.start_typing(chat.id)
+client.chats.stop_typing(chat.id)
 
 # Private reply to a comment's author (Instagram/Facebook) — returns a Message
 message = client.comments.private_reply("post-id", "comment-id", profile_id: "profile-id", text: "DM-ing you the details.")
@@ -531,6 +592,82 @@ webhook payload. `tapped_action` is derived rather than stored, so it also resol
 taps recorded before Postproxy exposed it, including Instagram ice-breaker taps and
 Telegram callback queries (`kind` `"callback_query"`). A tap also opens the 24h window.
 
+### Carousels (Facebook & Instagram)
+
+`elements` sends a horizontally scrolling carousel of up to 10 cards. Each card needs a
+`title` (≤ 80 chars) plus at least one of `subtitle`, `image_url`, `default_action` or
+`buttons` (≤ 3). A carousel can't be combined with `body`, `buttons` or `card`. Cards take
+`PostProxy::MessageElement` instances or plain hashes:
+
+```ruby
+client.messages.send(
+  chat.id,
+  elements: [
+    PostProxy::MessageElement.new(
+      title: "Red sneaker",
+      subtitle: "$89",
+      image_url: "https://cdn.example.com/red.png",
+      buttons: [{ type: "web_url", title: "Buy", url: "https://shop.example.com/red" }]
+    ),
+    {
+      title: "Blue sneaker",
+      subtitle: "$92",
+      image_url: "https://cdn.example.com/blue.png",
+      buttons: [{ type: "postback", title: "Notify me", payload: "NOTIFY:blue" }]
+    }
+  ]
+)
+```
+
+Sent carousels come back on `Message#elements`; an inbound reply to an Instagram story
+carries `Message#story_reply`.
+
+### WhatsApp
+
+WhatsApp chats run through a phone number, so creating one takes the `placement_id` (the
+phone number id from `profiles.placements`). Send exactly one of `body`, `media`,
+`template`, `interactive`, `location` or `contacts` per message. Outside the 24-hour
+customer service window (`chat.within_messaging_window == false`) only an approved
+template gets through.
+
+```ruby
+chat = client.chats.create("wa-profile-id", "15551234567", placement_id: "phone-number-id")
+
+# Template — address it by name (+ language) or id. Variables are positional:
+# header, then body, then dynamic URL buttons.
+client.messages.send(
+  chat.id,
+  template: PostProxy::MessageTemplateInput.new(
+    name: "order_update",
+    language: "en_US",
+    variables: ["Jane", "#1234"],
+    button_params: [{ index: 0, sub_type: "url", text: "1234" }]
+  )
+)
+
+# Location, contacts, and Meta's interactive messages (buttons, lists, ...)
+client.messages.send(chat.id,
+  location: PostProxy::MessageLocation.new(latitude: 52.52, longitude: 13.405, name: "Our store", address: "Main St 1"))
+client.messages.send(chat.id,
+  contacts: [{ name: { formatted_name: "Support" }, phones: [{ phone: "+15550000000" }] }])
+client.messages.send(chat.id, interactive: {
+  type: "button",
+  body: { text: "Did that help?" },
+  action: { buttons: [{ type: "reply", reply: { id: "yes", title: "Yes" } }] }
+})
+
+# Send options
+client.messages.send(chat.id, body: "Your code is 1234", category: "utility")
+client.messages.send(chat.id, body: "https://example.com", link_preview: true)
+client.messages.send(chat.id, media: ["https://example.com/invoice.pdf"], filename: "invoice.pdf")
+client.messages.send(chat.id, media: ["https://example.com/note.ogg"], voice_note: true)
+```
+
+`Message` carries the WhatsApp payloads back as `template` (a `MessageTemplateRef`),
+`interactive`, `location` and `contacts`; a failed send has `error_details`. Templates,
+number registration, the business profile, groups and more are managed through
+`client.whatsapp_templates` and `client.whatsapp` — see [WhatsApp management](#whatsapp-management).
+
 ## Profile comments (Google Business reviews)
 
 Profile-level comments expose Google Business reviews and replies. Reviews are user-generated — the SDK lets you list/get them and reply to or delete your own replies. Reviews sync twice daily.
@@ -575,6 +712,43 @@ placement = client.profiles.assign_placement_to_group("prof-id",
   target_profile_group_id: "pg-other"
 )
 puts placement.profile_group_id # => "pg-other"
+
+# Move the whole profile (with its placements) to another group
+client.profiles.assign_to_group("prof-id", "pg-other")
+
+# Daily stats and follower history
+daily = client.profiles.daily_stats("prof-id",
+  from: "2026-09-01",
+  to: "2026-09-30",
+  attribution: "publish" # or "received" (default)
+)
+daily.data.records.each { |day| puts "#{day.date}: #{day[:impressions]}" }
+
+followers = client.profiles.follower_history("prof-id", from: "2026-09-01")
+followers.data.records.each { |day| puts "#{day.date}: #{day.followers_total}" }
+
+# Instagram: whether a DM participant is verified / follows you
+status = client.profiles.participant_status("ig-profile-id", "igsid-123")
+puts status.is_user_follow_business
+
+# LinkedIn: resolve a company page to the URN used to @-mention it
+mention = client.profiles.resolve_mention("li-profile-id", "https://www.linkedin.com/company/acme")
+puts mention.urn # => "urn:li:organization:123"
+
+# Instagram (Facebook login): music for reels — pass the id as
+# platforms.instagram.audio_id
+audio = client.profiles.instagram_available_audio("ig-profile-id",
+  audio_type: "music", # or "original_sound"
+  search_query: "summer"
+)
+puts audio[:data].map { |a| a[:id] }
+
+# Facebook Page about / contact info (returned as a hash)
+page = client.profiles.facebook_page("fb-profile-id", "page-id")
+client.profiles.update_facebook_page("fb-profile-id", "page-id", {
+  about: "Coffee roasters since 2010",
+  website: "https://example.com"
+})
 
 # Ice breakers (Instagram DMs): FAQ prompts shown when a user opens a chat
 result = client.profiles.ice_breakers("prof-id")
@@ -679,6 +853,18 @@ behave exactly like ones the poll picks up (`source: "imported"`, `post.imported
 webhook), but a backfill's follow-up work is queued at a lower priority so a deep run
 can't slow down publishing.
 
+### Chat backfill
+
+`backfill_chats` imports DM history the same way `backfill_posts` imports posts. Runs are
+`ChatSync` records (`chats_seen`, `messages_imported`, `oldest_updated_at`, plus the same
+`trigger` / `status` / timing fields as `PostSync`).
+
+```ruby
+run = client.profiles.backfill_chats("prof-id", from: "2026-01-01")
+latest = client.profiles.chat_sync("prof-id", run.id)
+runs = client.profiles.chat_syncs("prof-id", status: "completed")
+```
+
 ## Profile Groups
 
 ```ruby
@@ -702,6 +888,17 @@ connection = client.profile_groups.initialize_connection(
 )
 # Redirect user to connection.url
 
+# Pick the onboarding flow: Instagram via Facebook login (needed for reel music),
+# WhatsApp via the Cloud API ("api") or the WhatsApp Business app ("business_app").
+client.profile_groups.initialize_connection("pg-id",
+  platform: "instagram", redirect_url: "https://myapp.com/callback", onboarding: "facebook")
+client.profile_groups.initialize_connection("pg-id",
+  platform: "whatsapp", redirect_url: "https://myapp.com/callback", onboarding: "business_app")
+
+# Re-authorize an existing connection
+client.profile_groups.initialize_connection("pg-id",
+  platform: "linkedin", redirect_url: "https://myapp.com/callback", refresh_connection: true)
+
 # BlueSky — app password (synchronous, no OAuth)
 bsky = client.profile_groups.connect_bluesky("pg-id",
   identifier: "yourname.bsky.social",
@@ -723,6 +920,139 @@ loop do
   sleep 3
 end
 puts "Channels: #{placements.map { |p| [p.id, p.name] }}"
+```
+
+## Placements & API keys
+
+Both require an **account-wide** API key.
+
+```ruby
+# Every placement (Facebook Page, LinkedIn org, WhatsApp number, ...) across groups
+placements = client.placements.list(per_page: 50)
+placements.data.each do |p|
+  puts "#{p.platform} #{p.name} via #{p.active_profile.name}"
+end
+
+# When several connected profiles reach the same placement, pick the one to use
+client.placements.set_active_profile("placement-id", "profile-id")
+
+# Group-scoped API keys
+key = client.api_keys.create("CI pipeline", profile_group_id: "pg-id")
+puts key.token # shown only once
+keys = client.api_keys.list.data
+client.api_keys.delete(key.id)
+```
+
+## Google Business management
+
+Manage a Google Business Profile location's own data — separate from posting to it.
+`location_id` is the placement id from `profiles.placements`. Google's camelCased payloads
+pass through untouched (responses are plain hashes), so you can PATCH back what you GET;
+updates take a `fields` list naming what to change.
+
+```ruby
+gbp = client.google_business
+
+location = gbp.location("gbp-profile-id", "location-id")
+gbp.update_location("gbp-profile-id", "location-id", { websiteUri: "https://example.com" },
+  fields: ["websiteUri"])
+gbp.update_hours("gbp-profile-id", "location-id",
+  fields: ["regularHours"],
+  regular_hours: {
+    periods: [{ openDay: "MONDAY", openTime: { hours: 9 }, closeDay: "MONDAY", closeTime: { hours: 17 } }]
+  }
+)
+
+# Categories and attributes
+gbp.available_location_categories("gbp-profile-id", "location-id", "US", filter: "coffee")
+attrs = gbp.attributes("gbp-profile-id", "location-id")
+gbp.available_attributes("gbp-profile-id", "location-id")
+gbp.update_attributes("gbp-profile-id", "location-id",
+  [{ name: "attributes/has_wi_fi", values: [true] }],
+  attribute_mask: ["attributes/has_wi_fi"])
+
+# Services and food menus
+gbp.service_list("gbp-profile-id", "location-id")
+gbp.update_service_list("gbp-profile-id", "location-id", [ ... ]) # serviceItems
+gbp.food_menus("gbp-profile-id", "location-id")
+gbp.update_food_menus("gbp-profile-id", "location-id", [ ... ])   # menus
+
+# Place action links (booking, ordering, ...)
+gbp.available_place_action_types("gbp-profile-id", "location-id")
+gbp.create_place_action_link("gbp-profile-id", "location-id",
+  uri: "https://book.example.com", place_action_type: "APPOINTMENT", is_preferred: true)
+links = gbp.place_action_links("gbp-profile-id", "location-id")
+gbp.update_place_action_link("gbp-profile-id", "location-id", "locations/1/placeActionLinks/2",
+  fields: ["uri"], uri: "https://book.example.com/new")
+gbp.delete_place_action_link("gbp-profile-id", "location-id", "locations/1/placeActionLinks/2")
+
+# Photos and videos
+gbp.create_media("gbp-profile-id", "location-id", "https://example.com/storefront.jpg",
+  category: "EXTERIOR", media_format: "PHOTO")
+media = gbp.media("gbp-profile-id", "location-id")
+gbp.delete_media("gbp-profile-id", "location-id", "accounts/1/locations/1/media/9")
+```
+
+## WhatsApp management
+
+`phone_number_id` is the placement id from `profiles.placements`. Responses other than
+templates are Meta's payloads as plain hashes.
+
+```ruby
+# Message templates (submitted to Meta for review)
+tpl = client.whatsapp_templates.create("wa-profile-id",
+  name: "order_update",
+  category: "UTILITY",
+  language: "en_US",
+  components: [{ type: "BODY", text: "Hi {{1}}, order {{2}} has shipped." }]
+)
+templates = client.whatsapp_templates.list("wa-profile-id", status: "APPROVED").data
+client.whatsapp_templates.get("wa-profile-id", "order_update", language: "en_US")
+client.whatsapp_templates.update("wa-profile-id", tpl.id, message_send_ttl_seconds: 3600)
+client.whatsapp_templates.delete("wa-profile-id", "order_update") # every language
+client.whatsapp_templates.library("wa-profile-id", name: "delivery")
+
+wa = client.whatsapp
+
+# Number registration
+wa.number_info("wa-profile-id", "phone-number-id")
+wa.request_verification_code("wa-profile-id", "phone-number-id", method: "SMS", language: "en")
+wa.verify_phone_number("wa-profile-id", "phone-number-id", "123456")
+wa.register_phone_number("wa-profile-id", "phone-number-id", "000000") # two-step PIN
+
+# Business profile, display name, username
+wa.update_business_profile("wa-profile-id", "phone-number-id",
+  about: "We reply fast", websites: ["https://example.com"])
+wa.update_business_profile_photo("wa-profile-id", "phone-number-id", url: "https://example.com/logo.png")
+wa.request_display_name_change("wa-profile-id", "phone-number-id", "Acme Coffee")
+wa.username_suggestions("wa-profile-id", "phone-number-id")
+wa.set_username("wa-profile-id", "phone-number-id", "acmecoffee")
+
+# Blocked users
+wa.block_users("wa-profile-id", "phone-number-id", ["15551234567"])
+wa.blocked_users("wa-profile-id", "phone-number-id")
+
+# Groups
+group = wa.create_group("wa-profile-id", "phone-number-id", "VIP customers",
+  join_approval_mode: "approval_required")
+wa.create_group_invite_link("wa-profile-id", "phone-number-id", "group-id")
+wa.group_join_requests("wa-profile-id", "phone-number-id", "group-id")
+wa.approve_group_join_requests("wa-profile-id", "phone-number-id", "group-id", ["15551234567"])
+
+# Conversions for click-to-WhatsApp ads (account-level, no phone number id)
+wa.create_dataset("wa-profile-id")
+wa.send_conversion_event("wa-profile-id",
+  event_name: "Purchase",
+  event_id: "order-1234",
+  chat_id: "chat-id",
+  currency: "USD",
+  value: 49.0
+)
+
+# Download inbound media — a RawResponse with the bytes and their content type
+file = wa.media("wa-profile-id", "phone-number-id", "media-id")
+File.binwrite("download", file.data)
+puts file.content_type
 ```
 
 ## Platform Parameters
@@ -771,7 +1101,75 @@ post = client.posts.create(
 )
 ```
 
-Supported platforms: `facebook`, `instagram`, `tiktok`, `linkedin`, `youtube`, `twitter`, `threads`, `pinterest`, `bluesky`, `telegram`, `google_business`. Telegram requires a `chat_id` per post — list channels with `client.profiles.placements(profile_id)`.
+Supported platforms: `facebook`, `instagram`, `tiktok`, `linkedin`, `youtube`, `twitter`, `threads`, `pinterest`, `bluesky`, `telegram`, `google_business`, `whatsapp` (DMs only). Telegram requires a `chat_id` per post — list channels with `client.profiles.placements(profile_id)`.
+
+### More per-platform options
+
+```ruby
+# Alt text (a single string, or an array matching the order of media) and AI disclosure
+client.posts.create("Launch day", profiles: ["ig-profile", "li-profile", "fb-profile"],
+  media: ["https://example.com/1.jpg", "https://example.com/2.jpg"],
+  platforms: PostProxy::PlatformParams.new(
+    instagram: PostProxy::InstagramParams.new(alt_text: ["Our team", "The product"], made_with_ai: false),
+    linkedin: PostProxy::LinkedInParams.new(alt_text: "Our team and the product",
+      countries: ["US", "CA"], organization_id: "123"),
+    facebook: PostProxy::FacebookParams.new(countries: ["US"])
+  )
+)
+
+# Facebook link post (text-only — renders the link preview card)
+client.posts.create("Read the announcement", profiles: ["fb-profile"],
+  platforms: { facebook: { link: "https://example.com/blog/launch" } })
+
+# LinkedIn poll
+client.posts.create("Quick question for you all", profiles: ["li-profile"],
+  platforms: PostProxy::PlatformParams.new(
+    linkedin: PostProxy::LinkedInParams.new(
+      format: "poll",
+      organization_id: "123",
+      poll_question: "Tabs or spaces?",
+      poll_options: ["Tabs", "Spaces"],
+      poll_duration_days: 7 # 1, 3, 7 or 14
+    )
+  )
+)
+
+# Threads topic tag, TikTok draft with a custom cover
+client.posts.create("New drop", profiles: ["threads-profile", "tt-profile"],
+  media: ["https://example.com/clip.mp4"],
+  platforms: PostProxy::PlatformParams.new(
+    threads: PostProxy::ThreadsParams.new(topic_tag: "Sneakers"),
+    tiktok: PostProxy::TikTokParams.new(format: "video", upload_as_draft: true,
+      cover_url: "https://example.com/cover.jpg")
+  )
+)
+
+# Instagram reel with licensed music (profiles connected via Facebook login).
+# Find an audio_id with client.profiles.instagram_available_audio.
+client.posts.create("Summer vibes", profiles: ["ig-profile"],
+  media: ["https://example.com/reel.mp4"],
+  platforms: { instagram: { format: "reel", audio_id: "1234567890", audio_volume: 60, video_volume: 30 } })
+```
+
+`InstagramParams#trial_strategy` takes `"MANUAL"` or `"SS_PERFORMANCE"`.
+
+### Custom covers
+
+Instagram, TikTok, YouTube and Pinterest take a hosted `cover_url`, or a `cover_file`:
+
+```ruby
+# A local file, uploaded with the post (the request switches to multipart)…
+client.posts.create("New video", profiles: ["tt-profile"],
+  media: ["https://example.com/video.mp4"],
+  platforms: { tiktok: { format: "video", cover_file: "./cover.jpg" } })
+
+# …or a base64 data URL, sent as-is
+client.posts.create("New pin", profiles: ["pin-profile"],
+  media: ["https://example.com/video.mp4"],
+  platforms: { pinterest: { board_id: "board-id", cover_file: "data:image/jpeg;base64,/9j/4AAQ..." } })
+```
+
+`cover_file` works on `posts.create` and `posts.update`.
 
 ### Instagram user tags
 
@@ -837,6 +1235,11 @@ begin
   client.posts.get("bad-id")
 rescue PostProxy::AuthenticationError => e
   puts "Auth failed: #{e.message}"       # 401
+rescue PostProxy::ForbiddenError => e
+  puts "Forbidden: #{e.message}"          # 403
+rescue PostProxy::RateLimitError => e
+  puts "Rate limited: #{e.message}"       # 429
+  sleep(e.retry_after) if e.retry_after   # seconds from Retry-After, or nil
 rescue PostProxy::NotFoundError => e
   puts "Not found: #{e.message}"          # 404
 rescue PostProxy::ConflictError => e
@@ -857,10 +1260,11 @@ end
 |---|---|---|
 | 400 | `BadRequestError` | Missing required parameters |
 | 401 | `AuthenticationError` | Invalid, missing, or insufficient API key permissions |
+| 403 | `ForbiddenError` | Account canceled or past due, or the platform refused the action |
 | 404 | `NotFoundError` | Resource does not exist or is not accessible |
 | 409 | `ConflictError` | Duplicate submission, a backfill already running, or an in-flight `Idempotency-Key` |
 | 422 | `ValidationError` | Validation failed |
-| 429 | `Error` | Posting rate limit reached |
+| 429 | `RateLimitError` | Posting rate limit reached, or the platform is rate-limiting — `retry_after` holds the `Retry-After` seconds |
 
 ## License
 

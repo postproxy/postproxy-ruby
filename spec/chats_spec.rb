@@ -95,3 +95,47 @@ RSpec.describe PostProxy::Resources::Chats do
     end
   end
 end
+
+RSpec.describe PostProxy::Resources::Chats, "read receipts, typing, WhatsApp" do
+  let(:client) { new_client }
+  let(:chat_id) { "chat_xyz789" }
+  let(:mock_chat) do
+    {
+      id: "chat_xyz789", profile_id: "prof_wa", platform: "whatsapp",
+      external_placement_id: "pn_1", group: false, within_messaging_window: true,
+      participant_external_id: "15551234567", created_at: "2026-09-28T00:00:00Z"
+    }
+  end
+
+  it "creates a WhatsApp chat on a placement" do
+    stub = stub_request(:post, "#{BASE_URL}/api/profiles/prof_wa/chats")
+      .with(body: { participant_external_id: "15551234567", placement_id: "pn_1" })
+      .to_return(status: 200, body: mock_chat.to_json, headers: { "Content-Type" => "application/json" })
+
+    chat = client.chats.create("prof_wa", "15551234567", placement_id: "pn_1")
+    expect(stub).to have_been_requested
+    expect(chat.external_placement_id).to eq("pn_1")
+    expect(chat.group).to be false
+    expect(chat.within_messaging_window).to be true
+  end
+
+  it "marks a chat read" do
+    stub = stub_api(:post, "/chats/#{chat_id}/mark_read", body: mock_chat)
+
+    chat = client.chats.mark_read(chat_id)
+    expect(stub).to have_been_requested
+    expect(chat).to be_a(PostProxy::Chat)
+  end
+
+  it "starts and stops typing" do
+    start = stub_api(:post, "/chats/#{chat_id}/start_typing", body: { accepted: true })
+    stop = stub_api(:post, "/chats/#{chat_id}/stop_typing", body: { accepted: true })
+
+    started = client.chats.start_typing(chat_id)
+    client.chats.stop_typing(chat_id)
+
+    expect(started).to be_a(PostProxy::AcceptedResponse)
+    expect(started.accepted).to be true
+    [start, stop].each { |s| expect(s).to have_been_requested }
+  end
+end

@@ -30,9 +30,16 @@ module PostProxy
       end
 
       # OAuth flow. BlueSky and Telegram use their dedicated helpers below.
-      def initialize_connection(id, platform:, redirect_url: nil)
+      #
+      # `onboarding` picks the flow: Instagram "instagram" (default) or
+      # "facebook" (Facebook login — needed for reel music); WhatsApp "api" or
+      # "business_app". `refresh_connection: true` re-authorizes an existing
+      # profile.
+      def initialize_connection(id, platform:, redirect_url: nil, onboarding: nil, refresh_connection: nil)
         body = { platform: platform }
         body[:redirect_url] = redirect_url if redirect_url
+        body[:onboarding] = onboarding if onboarding
+        body[:refresh_connection] = refresh_connection unless refresh_connection.nil?
         result = @client.request(:post, "/profile_groups/#{id}/initialize_connection", json: body)
         ConnectionResponse.new(**result)
       end

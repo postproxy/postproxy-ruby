@@ -19,6 +19,24 @@ connection = client.profile_groups.initialize_connection(
 
 puts "Redirect user to: #{connection.url}"
 
+# Instagram via Facebook login (needed to attach music to reels)
+ig_via_facebook = client.profile_groups.initialize_connection(
+  group.id,
+  platform: "instagram",
+  redirect_url: "https://myapp.com/callback",
+  onboarding: "facebook"
+)
+puts "Instagram (Facebook login) URL: #{ig_via_facebook.url}"
+
+# WhatsApp through the WhatsApp Business app ("api" for the Cloud API)
+whatsapp = client.profile_groups.initialize_connection(
+  group.id,
+  platform: "whatsapp",
+  redirect_url: "https://myapp.com/callback",
+  onboarding: "business_app"
+)
+puts "WhatsApp URL: #{whatsapp.url}"
+
 # After connecting, list a profile's placements (Pages, channels, locations)
 placements = client.profiles.placements("profile-id").data
 puts "Placements: #{placements.map { |p| [p.id, p.name] }}"

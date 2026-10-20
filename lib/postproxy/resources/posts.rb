@@ -28,13 +28,20 @@ module PostProxy
         Post.new(**result)
       end
 
+      # `media` items are URL strings or `{ url: }` hashes. A local
+      # `cover_file` in `platforms` (Instagram, TikTok, YouTube, Pinterest) is
+      # uploaded with the post, switching the request to multipart; a base64
+      # data URL is sent as-is. `skip_duplicate_check: true` publishes even if
+      # an identical post was just submitted (no ConflictError).
       def create(body, profiles:, media: nil, media_files: nil, platforms: nil,
                  thread: nil, scheduled_at: nil, draft: nil, queue_id: nil,
-                 queue_priority: nil, profile_group_id: nil, idempotency_key: nil)
+                 queue_priority: nil, profile_group_id: nil, idempotency_key: nil,
+                 skip_duplicate_check: nil)
         has_files = media_files && !media_files.empty?
         has_thread_files = thread&.any? { |t| t[:media_files]&.any? }
+        headers = skip_duplicate_check ? { "X-Skip-Duplicate-Check" => "true" } : nil
 
-        if has_files || has_thread_files
+        if has_files || has_thread_files || local_cover_file?(platforms)
           form_data = { "post[body]" => body }
           form_data["post[scheduled_at]"] = format_time(scheduled_at) if scheduled_at
           form_data["post[draft]"] = draft.to_s if !draft.nil?
@@ -48,17 +55,10 @@ module PostProxy
           end
 
           media&.each do |m|
-            files << ["media[]", nil, m, "text/plain"]
+            files << ["media[]", nil, media_url(m), "text/plain"]
           end
 
-          if platforms
-            params_hash = platforms.is_a?(PlatformParams) ? platforms.to_h : platforms
-            params_hash.each do |platform, platform_params|
-              platform_params.each do |key, value|
-                files << ["platforms[#{platform}][#{key}]", nil, value.to_s, "text/plain"]
-              end
-            end
-          end
+          append_platform_params(files, platforms) if platforms
 
           media_files&.each do |path|
             path = path.to_s
@@ -72,7 +72,7 @@ module PostProxy
             form_data["thread[#{i}][body]"] = t[:body] if t[:body]
 
             t[:media]&.each do |m|
-              files << ["thread[#{i}][media][]", nil, m, "text/plain"]
+              files << ["thread[#{i}][media][]", nil, media_url(m), "text/plain"]
             end
 
             t[:media_files]&.each do |path|
@@ -88,7 +88,8 @@ module PostProxy
             data: form_data,
             files: files,
             profile_group_id: profile_group_id,
-            idempotency_key: idempotency_key
+            idempotency_key: idempotency_key,
+            headers: headers
           )
         else
           post_payload = { body: body }
@@ -105,20 +106,25 @@ module PostProxy
           result = @client.request(:post, "/posts",
             json: json_body,
             profile_group_id: profile_group_id,
-            idempotency_key: idempotency_key
+            idempotency_key: idempotency_key,
+            headers: headers
           )
         end
 
         Post.new(**result)
       end
 
+      # On a published post only `body`, `platforms.youtube.title`,
+      # `platforms.pinterest.title` and `platforms.pinterest.destination_link`
+      # can change; the edit is pushed to the platforms in the background
+      # (`platform_post.edited` / `platform_post.edit_failed` webhooks).
       def update(id, body: nil, profiles: nil, media: nil, media_files: nil, platforms: nil,
                  thread: nil, scheduled_at: nil, draft: nil, queue_id: nil,
                  queue_priority: nil, profile_group_id: nil, idempotency_key: nil)
         has_files = media_files && !media_files.empty?
         has_thread_files = thread&.any? { |t| t[:media_files]&.any? }
 
-        if has_files || has_thread_files
+        if has_files || has_thread_files || local_cover_file?(platforms)
           form_data = {}
           form_data["post[body]"] = body if body
           form_data["post[scheduled_at]"] = format_time(scheduled_at) if scheduled_at
@@ -133,17 +139,10 @@ module PostProxy
           end
 
           media&.each do |m|
-            files << ["media[]", nil, m, "text/plain"]
+            files << ["media[]", nil, media_url(m), "text/plain"]
           end
 
-          if platforms
-            params_hash = platforms.is_a?(PlatformParams) ? platforms.to_h : platforms
-            params_hash.each do |platform, platform_params|
-              platform_params.each do |key, value|
-                files << ["platforms[#{platform}][#{key}]", nil, value.to_s, "text/plain"]
-              end
-            end
-          end
+          append_platform_params(files, platforms) if platforms
 
           media_files&.each do |path|
             path = path.to_s
@@ -157,7 +156,7 @@ module PostProxy
             form_data["thread[#{i}][body]"] = t[:body] if t[:body]
 
             t[:media]&.each do |m|
-              files << ["thread[#{i}][media][]", nil, m, "text/plain"]
+              files << ["thread[#{i}][media][]", nil, media_url(m), "text/plain"]
             end
 
             t[:media_files]&.each do |path|
@@ -248,6 +247,68 @@ module PostProxy
       end
 
       private
+
+      def media_url(item)
+        return item unless item.is_a?(Hash)
+
+        item[:url] || item["url"]
+      end
+
+      # `cover_file` is a local path unless it's a base64 data URL, which the
+      # API takes as a plain string.
+      def local_cover_file_value?(key, value)
+        key.to_s == "cover_file" && value.is_a?(String) && !value.start_with?("data:")
+      end
+
+      def local_cover_file?(platforms)
+        return false unless platforms
+
+        params_hash = platforms.is_a?(PlatformParams) ? platforms.to_h : platforms
+        params_hash.any? do |_, platform_params|
+          platform_params = platform_params.to_h if platform_params.is_a?(Model)
+          platform_params.is_a?(Hash) && platform_params.any? { |k, v| local_cover_file_value?(k, v) }
+        end
+      end
+
+      # Platform params as flat form fields; a local `cover_file` is attached
+      # as a file.
+      def append_platform_params(files, platforms)
+        params_hash = platforms.is_a?(PlatformParams) ? platforms.to_h : platforms
+        params_hash.each do |platform, platform_params|
+          next if platform_params.nil?
+
+          platform_params = platform_params.to_h if platform_params.is_a?(Model)
+          platform_params.each do |key, value|
+            next if value.nil?
+
+            field = "platforms[#{platform}][#{key}]"
+            if local_cover_file_value?(key, value)
+              filename = File.basename(value)
+              files << [field, filename, File.open(value, "rb"), mime_type_for(filename)]
+            else
+              append_form_value(files, field, value)
+            end
+          end
+        end
+      end
+
+      def append_form_value(files, field, value)
+        case value
+        when Array
+          # Hashes (e.g. Instagram user tags) get an index so their fields stay
+          # grouped; Rails reads numeric keys back as an array.
+          value.each_with_index do |item, i|
+            nested = item.is_a?(Hash) || item.is_a?(Model)
+            append_form_value(files, nested ? "#{field}[#{i}]" : "#{field}[]", item)
+          end
+        when Hash
+          value.each { |k, v| append_form_value(files, "#{field}[#{k}]", v) unless v.nil? }
+        when Model
+          append_form_value(files, field, value.to_h)
+        else
+          files << [field, nil, value.to_s, "text/plain"]
+        end
+      end
 
       def format_time(value)
         return value if value.is_a?(String)

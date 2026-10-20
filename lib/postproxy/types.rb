@@ -19,11 +19,22 @@ module PostProxy
   end
 
   class Profile < Model
-    attr_accessor :id, :name, :status, :platform, :profile_group_id, :expires_at, :post_count
+    # `inactive_reason` says why an "inactive" profile was deactivated —
+    # "network_taken" means the same account was connected elsewhere.
+    # `platform_id` is the account's id on the platform.
+    attr_accessor :id, :name, :username, :status, :inactive_reason, :platform,
+                  :platform_id, :profile_group_id, :expires_at, :post_count,
+                  :avatar_url, :platform_url, :placements_sync_status
 
     def initialize(**attrs)
+      @username = nil
+      @inactive_reason = nil
+      @platform_id = nil
       @expires_at = nil
       @post_count = 0
+      @avatar_url = nil
+      @platform_url = nil
+      @placements_sync_status = nil
       super
       @expires_at = parse_time(@expires_at)
     end
@@ -75,19 +86,39 @@ module PostProxy
     end
   end
 
-  class PlatformResult < Model
-    attr_accessor :platform, :status, :params, :error, :error_details, :attempted_at, :insights
+  # A file PostProxy generated for one platform, e.g. a TikTok cover.
+  class PlatformAttachment < Model
+    attr_accessor :id, :type, :status, :content_type, :url
 
     def initialize(**attrs)
+      @content_type = nil
+      @url = nil
+      super
+    end
+  end
+
+  class PlatformResult < Model
+    attr_accessor :platform, :profile_id, :profile_name, :status, :permalink,
+                  :params, :error, :error_details, :attempted_at, :insights,
+                  :attachments
+
+    def initialize(**attrs)
+      @profile_id = nil
+      @profile_name = nil
+      @permalink = nil
       @params = nil
       @error = nil
       @error_details = nil
       @attempted_at = nil
       @insights = nil
+      @attachments = nil
       super
       @attempted_at = parse_time(@attempted_at)
       @insights = Insights.new(**@insights) if @insights.is_a?(Hash)
       @error_details = ErrorDetails.new(**@error_details.transform_keys(&:to_sym)) if @error_details.is_a?(Hash)
+      @attachments = @attachments&.map do |a|
+        a.is_a?(PlatformAttachment) ? a : PlatformAttachment.new(**a.transform_keys(&:to_sym))
+      end
     end
 
     private
@@ -127,13 +158,19 @@ module PostProxy
   end
 
   class ThreadChild < Model
-    attr_accessor :id, :body, :media
+    # Each thread item is delivered separately; `platforms` shows whether it
+    # went out.
+    attr_accessor :id, :body, :media, :platforms
 
     def initialize(**attrs)
       @media = []
+      @platforms = []
       super
       @media = (@media || []).map do |m|
         m.is_a?(Media) ? m : Media.new(**m.transform_keys(&:to_sym))
+      end
+      @platforms = (@platforms || []).map do |p|
+        p.is_a?(PlatformResult) ? p : PlatformResult.new(**p.transform_keys(&:to_sym))
       end
     end
   end
@@ -162,10 +199,13 @@ module PostProxy
   end
 
   class Post < Model
+    # `source` is "postproxy" or "imported".
     attr_accessor :id, :body, :status, :scheduled_at, :created_at, :media, :platforms, :thread,
-                  :queue_id, :queue_priority
+                  :queue_id, :queue_priority, :draft, :source
 
     def initialize(**attrs)
+      @draft = nil
+      @source = nil
       @scheduled_at = nil
       @media = []
       @platforms = []
@@ -237,7 +277,53 @@ module PostProxy
   class Placement < Model
     # `metadata` and `profile_group_id` are present in placements and
     # assign_placement_to_group responses.
-    attr_accessor :id, :name, :metadata, :profile_group_id
+    attr_accessor :id, :name, :avatar_url, :metadata, :profile_group_id
+  end
+
+  class AccountPlacementProfile < Model
+    attr_accessor :id, :name, :connected
+  end
+
+  # Account-level placement, returned by Placements#list. A placement (a
+  # Facebook Page, LinkedIn organization, WhatsApp number, ...) can be
+  # reachable through several connected profiles; one of them is active.
+  class AccountPlacement < Model
+    attr_accessor :id, :platform, :external_id, :name, :avatar_url, :status,
+                  :active_profile, :linked_profiles
+
+    def initialize(**attrs)
+      @avatar_url = nil
+      @active_profile = nil
+      @linked_profiles = []
+      super
+      if @active_profile.is_a?(Hash)
+        @active_profile = AccountPlacementProfile.new(**@active_profile.transform_keys(&:to_sym))
+      end
+      @linked_profiles = (@linked_profiles || []).map do |p|
+        p.is_a?(AccountPlacementProfile) ? p : AccountPlacementProfile.new(**p.transform_keys(&:to_sym))
+      end
+    end
+  end
+
+  class ApiKey < Model
+    # `token` is only returned by ApiKeys#create — store it, it can't be read
+    # again.
+    attr_accessor :id, :name, :profile_group_id, :sandbox, :token, :created_at
+
+    def initialize(**attrs)
+      @profile_group_id = nil
+      @sandbox = false
+      @token = nil
+      super
+      @created_at = parse_time(@created_at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
   end
 
   # Instagram DM ice breaker (FAQ prompt). May carry extra platform fields.
@@ -365,7 +451,8 @@ module PostProxy
     attr_accessor :id, :external_id, :body, :status, :author_username,
                   :author_avatar_url, :author_external_id, :metadata,
                   :parent_external_id, :like_count, :is_hidden, :permalink,
-                  :platform_data, :attachments, :posted_at, :created_at, :replies
+                  :platform_data, :attachments, :external_edited_at, :posted_at,
+                  :created_at, :replies
 
     def initialize(**attrs)
       @external_id = nil
@@ -378,8 +465,10 @@ module PostProxy
       @permalink = nil
       @platform_data = nil
       @attachments = []
+      @external_edited_at = nil
       @replies = []
       super
+      @external_edited_at = parse_time(@external_edited_at)
       @posted_at = parse_time(@posted_at)
       @created_at = parse_time(@created_at)
       @attachments = (@attachments || []).map do |a|
@@ -399,12 +488,21 @@ module PostProxy
   end
 
   class Chat < Model
-    attr_accessor :id, :profile_id, :platform, :participant_external_id,
-                  :participant_username, :participant_name, :participant_avatar_url,
+    # `external_placement_id` is the page / phone number the chat runs through;
+    # `group` marks a WhatsApp group chat. `within_messaging_window` is
+    # WhatsApp-only: whether the 24-hour customer service window is open —
+    # when it's closed only a template can be sent.
+    attr_accessor :id, :profile_id, :platform, :external_placement_id, :group,
+                  :participant_external_id, :participant_username,
+                  :participant_name, :participant_avatar_url,
                   :external_conversation_id, :last_inbound_at, :last_outbound_at,
-                  :last_message_at, :metadata, :archived, :created_at
+                  :last_message_at, :metadata, :archived,
+                  :within_messaging_window, :created_at
 
     def initialize(**attrs)
+      @external_placement_id = nil
+      @group = false
+      @within_messaging_window = nil
       @participant_username = nil
       @participant_name = nil
       @participant_avatar_url = nil
@@ -497,6 +595,85 @@ module PostProxy
     end
   end
 
+  # One card of a horizontally scrolling carousel. Facebook and Instagram only;
+  # up to 10 per send. +title+ (80 characters or fewer) plus at least one
+  # other field is required; +buttons+ takes up to 3.
+  class MessageElement < Model
+    attr_accessor :title, :subtitle, :image_url, :default_action, :buttons
+
+    def initialize(**attrs)
+      @subtitle = nil
+      @image_url = nil
+      @default_action = nil
+      @buttons = nil
+      super
+      if @default_action && !@default_action.is_a?(CardDefaultAction)
+        @default_action = CardDefaultAction.new(**@default_action.transform_keys(&:to_sym))
+      end
+      @buttons = @buttons&.map do |b|
+        b.is_a?(MessageButton) ? b : MessageButton.new(**b.transform_keys(&:to_sym))
+      end
+    end
+
+    def to_h
+      {
+        title: @title,
+        subtitle: @subtitle,
+        image_url: @image_url,
+        default_action: @default_action&.to_h,
+        buttons: @buttons&.map(&:to_h)
+      }.compact
+    end
+  end
+
+  class MessageLocation < Model
+    attr_accessor :latitude, :longitude, :name, :address
+
+    def initialize(**attrs)
+      @name = nil
+      @address = nil
+      super
+    end
+
+    def to_h
+      { latitude: @latitude, longitude: @longitude, name: @name, address: @address }.compact
+    end
+  end
+
+  # WhatsApp template send. Address the template by +id+ (PostProxy or Meta
+  # id) or by +name+ (+ +language+ when it exists in several). +variables+ are
+  # positional: header, then body, then dynamic URL buttons. +button_params+
+  # are hashes with +index+ and +sub_type+ ("url", "copy_code", "flow",
+  # "quick_reply", "voice_call"); +header_media+ is { link: } or { id: } for
+  # an image / video / document header.
+  class MessageTemplateInput < Model
+    attr_accessor :id, :name, :language, :variables, :button_params,
+                  :header_media, :header_location
+
+    def to_h
+      {
+        id: @id,
+        name: @name,
+        language: @language,
+        variables: @variables,
+        button_params: @button_params,
+        header_media: @header_media,
+        header_location: @header_location.is_a?(MessageLocation) ? @header_location.to_h : @header_location
+      }.compact
+    end
+  end
+
+  # The template an outbound WhatsApp message was sent with.
+  class MessageTemplateRef < Model
+    attr_accessor :id, :external_id, :name, :language, :variables
+
+    def initialize(**attrs)
+      @external_id = nil
+      @variables = nil
+      super
+    end
+  end
+
   # Set on inbound messages created by a tap on an element you sent. Derived
   # from platform_data rather than stored, so it also resolves for taps ingested
   # before PostProxy exposed this field. +kind+ is one of "quick_reply",
@@ -513,12 +690,13 @@ module PostProxy
 
   class Message < Model
     attr_accessor :id, :chat_id, :external_id, :direction, :body, :status,
-                  :tag, :external_comment_id, :error_message, :platform_data,
-                  :external_posted_at, :external_delivered_at, :external_read_at,
-                  :external_edited_at, :reply_to_external_id, :reply_markup,
-                  :quick_replies, :buttons, :card, :tapped_action,
-                  :external_deleted_at, :reactions, :attachments,
-                  :is_unsupported, :created_at
+                  :tag, :external_comment_id, :error_message, :error_details,
+                  :platform_data, :external_posted_at, :external_delivered_at,
+                  :external_read_at, :external_edited_at, :reply_to_external_id,
+                  :reply_markup, :quick_replies, :buttons, :card, :elements,
+                  :tapped_action, :story_reply, :interactive, :location,
+                  :contacts, :template, :external_deleted_at, :reactions,
+                  :attachments, :is_unsupported, :created_at
 
     def initialize(**attrs)
       @external_id = nil
@@ -536,7 +714,15 @@ module PostProxy
       @quick_replies = nil
       @buttons = nil
       @card = nil
+      @elements = nil
       @tapped_action = nil
+      @error_details = nil
+      @story_reply = nil
+      # WhatsApp-only payloads.
+      @interactive = nil
+      @location = nil
+      @contacts = nil
+      @template = nil
       @external_deleted_at = nil
       @reactions = []
       @attachments = []
@@ -568,6 +754,16 @@ module PostProxy
       if @tapped_action && !@tapped_action.is_a?(TappedAction)
         @tapped_action = TappedAction.new(**@tapped_action.transform_keys(&:to_sym))
       end
+      @elements = @elements&.map do |e|
+        e.is_a?(MessageElement) ? e : MessageElement.new(**e.transform_keys(&:to_sym))
+      end
+      if @location.is_a?(Hash)
+        @location = MessageLocation.new(**@location.transform_keys(&:to_sym))
+      end
+      if @template.is_a?(Hash)
+        @template = MessageTemplateRef.new(**@template.transform_keys(&:to_sym))
+      end
+      @error_details = ErrorDetails.new(**@error_details.transform_keys(&:to_sym)) if @error_details.is_a?(Hash)
     end
 
     private
@@ -617,7 +813,7 @@ module PostProxy
                   :status, :author_username, :author_avatar_url,
                   :author_external_id, :metadata, :parent_external_id,
                   :like_count, :is_hidden, :permalink, :platform_data,
-                  :attachments, :posted_at, :created_at
+                  :attachments, :external_edited_at, :posted_at, :created_at
 
     def initialize(**attrs)
       @external_id = nil
@@ -631,8 +827,10 @@ module PostProxy
       @permalink = nil
       @platform_data = nil
       @attachments = []
+      @external_edited_at = nil
       @posted_at = nil
       super
+      @external_edited_at = parse_time(@external_edited_at)
       @posted_at = parse_time(@posted_at)
       @created_at = parse_time(@created_at)
       @attachments = (@attachments || []).map do |a|
@@ -651,11 +849,12 @@ module PostProxy
   # A record of one post pull for a profile — the sync fired when the profile
   # connects, the recurring poll, or a backfill.
   class PostSync < Model
-    attr_accessor :id, :profile_id, :kind, :trigger, :status, :started_at,
-                  :completed_at, :posts_seen, :posts_imported, :backfill_from,
-                  :oldest_posted_at, :error, :created_at
+    attr_accessor :id, :profile_id, :placement_id, :kind, :trigger, :status,
+                  :started_at, :completed_at, :posts_seen, :posts_imported,
+                  :backfill_from, :oldest_posted_at, :error, :created_at
 
     def initialize(**attrs)
+      @placement_id = nil
       @started_at = nil
       @completed_at = nil
       @posts_seen = 0
@@ -682,8 +881,44 @@ module PostProxy
     end
   end
 
+  # A chat (DM) sync run, started by Profiles#backfill_chats or on connect.
+  class ChatSync < Model
+    attr_accessor :id, :profile_id, :placement_id, :kind, :trigger, :status,
+                  :started_at, :completed_at, :chats_seen, :messages_imported,
+                  :backfill_from, :oldest_updated_at, :error, :created_at
+
+    def initialize(**attrs)
+      @placement_id = nil
+      @started_at = nil
+      @completed_at = nil
+      @chats_seen = 0
+      @messages_imported = 0
+      @backfill_from = nil
+      @oldest_updated_at = nil
+      @error = nil
+      super
+      @started_at = parse_time(@started_at)
+      @completed_at = parse_time(@completed_at)
+      @backfill_from = parse_time(@backfill_from)
+      @oldest_updated_at = parse_time(@oldest_updated_at)
+      @created_at = parse_time(@created_at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
   class DeleteResponse < Model
     attr_accessor :deleted
+  end
+
+  # Body bytes and content type of a binary download (WhatsApp#media).
+  class RawResponse < Model
+    attr_accessor :data, :content_type
   end
 
   class DeletingPlatform < Model
@@ -760,10 +995,101 @@ module PostProxy
     end
   end
 
+  # One day of a DailyStats series. Normalized metrics (e.g. `impressions`,
+  # `viewers`) vary by platform, so they live in `values` and are also
+  # readable as `record[:impressions]`.
+  class DailyStatsRecord
+    attr_reader :date, :platform_stats, :values
+
+    def initialize(**attrs)
+      attrs = attrs.transform_keys(&:to_sym)
+      @date = attrs.delete(:date)
+      @platform_stats = attrs.delete(:platform_stats)
+      @values = attrs
+    end
+
+    def [](key)
+      @values[key.to_sym]
+    end
+
+    def to_h
+      { date: @date, platform_stats: @platform_stats }.merge(@values)
+    end
+  end
+
+  class DailyStats < Model
+    # `metrics` describes each metric in `records`.
+    attr_accessor :profile_id, :platform, :placement_id, :attribution, :from,
+                  :to, :data_timezone, :records, :metrics
+
+    def initialize(**attrs)
+      @placement_id = nil
+      @data_timezone = nil
+      @records = []
+      @metrics = {}
+      super
+      @records = (@records || []).map do |r|
+        r.is_a?(DailyStatsRecord) ? r : DailyStatsRecord.new(**r)
+      end
+    end
+  end
+
+  class DailyStatsResponse
+    attr_reader :data
+
+    def initialize(data:)
+      @data = data.is_a?(DailyStats) ? data : DailyStats.new(**data.transform_keys(&:to_sym))
+    end
+  end
+
+  class FollowerHistoryRecord < Model
+    attr_accessor :date, :followers_gained, :followers_lost, :followers_change, :followers_total
+  end
+
+  class FollowerHistory < Model
+    attr_accessor :profile_id, :platform, :placement_id, :from, :to, :records
+
+    def initialize(**attrs)
+      @placement_id = nil
+      @records = []
+      super
+      @records = (@records || []).map do |r|
+        r.is_a?(FollowerHistoryRecord) ? r : FollowerHistoryRecord.new(**r.transform_keys(&:to_sym))
+      end
+    end
+  end
+
+  class FollowerHistoryResponse
+    attr_reader :data
+
+    def initialize(data:)
+      @data = data.is_a?(FollowerHistory) ? data : FollowerHistory.new(**data.transform_keys(&:to_sym))
+    end
+  end
+
+  # Instagram only. Cached for a short while server-side.
+  class ParticipantStatus < Model
+    attr_accessor :is_verified_user, :is_user_follow_business,
+                  :is_business_follow_user, :fetched_at
+  end
+
+  # LinkedIn only: a company page URL (or vanity name) resolved to the URN you
+  # @-mention it with in a post body.
+  class ResolvedMention < Model
+    attr_accessor :urn, :type, :name, :vanity_name
+  end
+
   # Platform-specific parameter structs
 
+  # `alt_text` on every params class that has it takes a single string or an
+  # array, one per media item in order.
+  #
+  # `link` makes a text-only link post (Facebook renders the preview card).
+  # `made_with_ai` applies to photo posts only. `countries` are ISO 3166-1
+  # alpha-2 codes; viewers elsewhere won't see the post.
   class FacebookParams < Model
-    attr_accessor :format, :title, :first_comment, :page_id
+    attr_accessor :format, :title, :first_comment, :page_id, :link, :alt_text,
+                  :made_with_ai, :countries
   end
 
   # An Instagram account to tag in a post. Images require `x` and `y`; reels
@@ -773,9 +1099,20 @@ module PostProxy
     attr_accessor :username, :x, :y, :media_index
   end
 
+  # `cover_file` is a local path to a cover image, uploaded with the post (the
+  # request switches to multipart); a base64 data URL
+  # (`data:image/jpeg;base64,...`) is sent as-is. The same holds for TikTok,
+  # YouTube and Pinterest.
+  #
+  # `audio_id` comes from Profiles#instagram_available_audio; it and
+  # `audio_volume` / `video_volume` (1-100) need a profile connected via
+  # Facebook login. `strip_audio` removes the video's own track (reel, story).
+  # `trial_strategy` is "MANUAL" or "SS_PERFORMANCE".
   class InstagramParams < Model
     attr_accessor :format, :first_comment, :collaborators, :cover_url,
-                  :audio_name, :trial_strategy, :thumb_offset, :user_tags
+                  :cover_file, :audio_name, :audio_id, :audio_volume,
+                  :video_volume, :strip_audio, :trial_strategy, :thumb_offset,
+                  :user_tags, :alt_text, :made_with_ai
 
     def initialize(**attrs)
       @user_tags = nil
@@ -799,37 +1136,50 @@ module PostProxy
     end
   end
 
+  # `upload_as_draft` sends the video to the creator's TikTok inbox instead of
+  # publishing. `cover_url` needs profiles connected after 2026-09-30;
+  # `thumb_offset` picks a frame in milliseconds, and `cover_url` wins if both
+  # are set.
   class TikTokParams < Model
     attr_accessor :format, :privacy_status, :photo_cover_index, :auto_add_music,
                   :made_with_ai, :disable_comment, :disable_duet, :disable_stitch,
-                  :brand_content_toggle, :brand_organic_toggle
+                  :brand_content_toggle, :brand_organic_toggle, :upload_as_draft,
+                  :cover_url, :cover_file, :thumb_offset
   end
 
+  # `reshare_urn` reshares a post (e.g. "urn:li:share:123"). `countries` is
+  # for organization pages only (up to 25 codes). For format "poll",
+  # `poll_question` (140 chars max) and `poll_options` (2-4, 30 chars max
+  # each) are required; `poll_duration_days` is 1, 3, 7 (default) or 14.
   class LinkedInParams < Model
-    attr_accessor :format, :organization_id
+    attr_accessor :format, :organization_id, :reshare_urn, :alt_text, :countries,
+                  :poll_question, :poll_options, :poll_duration_days
   end
 
   class YouTubeParams < Model
-    attr_accessor :format, :title, :privacy_status, :cover_url, :made_for_kids,
-                  :tags, :category_id, :contains_synthetic_media
+    attr_accessor :format, :title, :privacy_status, :cover_url, :cover_file,
+                  :made_for_kids, :tags, :category_id, :contains_synthetic_media
   end
 
   class PinterestParams < Model
-    attr_accessor :format, :title, :board_id, :destination_link, :cover_url, :thumb_offset
+    attr_accessor :format, :title, :board_id, :destination_link, :cover_url,
+                  :cover_file, :thumb_offset, :alt_text
   end
 
+  # `topic_tag` is one tag, 50 characters or fewer, without the leading # and
+  # with no "." or "&".
   class ThreadsParams < Model
-    attr_accessor :format
+    attr_accessor :format, :alt_text, :topic_tag
   end
 
   class TwitterParams < Model
     # poll_options and poll_duration_minutes are required when format is
     # "poll": 2-4 options (max 25 chars each), duration 5 to 10080 minutes.
-    attr_accessor :format, :poll_options, :poll_duration_minutes
+    attr_accessor :format, :alt_text, :poll_options, :poll_duration_minutes
   end
 
   class BlueskyParams < Model
-    attr_accessor :format
+    attr_accessor :format, :alt_text
   end
 
   class TelegramParams < Model
@@ -850,6 +1200,35 @@ module PostProxy
         result[platform] = params.reject { |_, v| v.nil? }
       end
       result
+    end
+  end
+
+  # --- WhatsApp ---
+
+  class WhatsAppTemplate < Model
+    attr_accessor :id, :external_id, :profile_id, :name, :language, :category,
+                  :status, :parameter_format, :components,
+                  :message_send_ttl_seconds, :rejected_reason, :quality_score,
+                  :variable_count, :created_at, :updated_at
+
+    def initialize(**attrs)
+      @external_id = nil
+      @parameter_format = nil
+      @components = []
+      @message_send_ttl_seconds = nil
+      @rejected_reason = nil
+      @quality_score = nil
+      @variable_count = 0
+      super
+      @created_at = parse_time(@created_at)
+      @updated_at = parse_time(@updated_at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
     end
   end
 end

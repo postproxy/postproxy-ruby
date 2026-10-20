@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.0] - 2026-10-20
+
+### Added
+
+- **WhatsApp.** `"whatsapp"` joins `PLATFORMS`. DMs: `chats.create` takes `placement_id:` (the phone number id, required for WhatsApp), and `messages.send` takes `template:` (`PostProxy::MessageTemplateInput`: `id` or `name` + `language`, `variables`, `button_params`, `header_media`, `header_location`), `interactive:`, `location:` (`PostProxy::MessageLocation`), `contacts:`, plus the send options `category:`, `link_preview:`, `voice_note:` and `filename:`. `Chat` gains `external_placement_id`, `group` and `within_messaging_window`; `Message` gains `template` (`MessageTemplateRef`), `interactive`, `location`, `contacts` and `error_details`.
+- **`client.whatsapp_templates`** — `list`, `get`, `create`, `update`, `delete`, `library` for message templates (`PostProxy::WhatsAppTemplate`). Template ids/names are URL-encoded.
+- **`client.whatsapp`** — number administration: `number_info`, `register_phone_number`, `request_verification_code`, `verify_phone_number`, `business_profile`, `update_business_profile`, `update_business_profile_photo`, `display_name`, `request_display_name_change`, `username`, `set_username`, `delete_username`, `username_suggestions`, blocked users (`blocked_users`, `blocked_user_status`, `block_users`, `unblock_users`), groups (`groups`, `create_group`, `group`, `update_group`, `delete_group`, `add_group_participants`, `remove_group_participants`, `create_group_invite_link`, `group_join_requests`, `approve_group_join_requests`, `reject_group_join_requests`), conversions (`dataset`, `create_dataset`, `send_conversion_event`) and `media`, which returns a `PostProxy::RawResponse` (`data` bytes + `content_type`). Responses are Meta's payloads as hashes.
+- **`client.google_business`** — manage a Google Business location's own data: `location`, `update_location`, `available_location_categories`, `update_hours`, `attributes`, `available_attributes`, `update_attributes`, `service_list`, `update_service_list`, `food_menus`, `update_food_menus`, `place_action_links`, `available_place_action_types`, `create_place_action_link`, `update_place_action_link`, `delete_place_action_link`, `media`, `create_media`, `delete_media`. Google's camelCased payloads pass through as hashes.
+- **`client.placements`** (`list`, `set_active_profile`, returning `AccountPlacement`) and **`client.api_keys`** (`list`, `create`, `delete`, returning `ApiKey`) — account-wide keys only.
+- **Profiles:** `assign_to_group`, `daily_stats` (with `attribution:`; `DailyStatsResponse` / `DailyStats` / `DailyStatsRecord`, whose per-platform metrics read as `record[:impressions]`), `follower_history` (`FollowerHistoryResponse`), `participant_status` (Instagram, `ParticipantStatus`), `resolve_mention` (LinkedIn, `ResolvedMention`), `instagram_available_audio`, `facebook_page` / `update_facebook_page`, and chat backfill — `backfill_chats`, `chat_syncs`, `chat_sync` (`ChatSync`). `Profile` gains `username`, `platform_id`, `platform_url`, `avatar_url`, `inactive_reason` and `placements_sync_status`; `Placement` gains `avatar_url`; `PostSync` gains `placement_id`.
+- **Comments:** `edit` (Facebook, YouTube), `pin` / `unpin` (TikTok), `private_reply` accepts `quick_replies:`, `buttons:`, `card:` and `elements:`, and `list_all` accepts `placement_id:`. `Comment` and `BulkComment` gain `external_edited_at`.
+- **Chats:** `mark_read`, `start_typing`, `stop_typing`.
+- **Carousels:** `messages.send(elements:)` with the new `PostProxy::MessageElement` (up to 10 cards, Facebook and Instagram). `Message#elements` and `Message#story_reply`.
+- **Post params:** `alt_text` (string or per-media array) on Facebook, Instagram, LinkedIn, Bluesky, Threads, Pinterest and Twitter; `made_with_ai` on Instagram and Facebook; Facebook `link` and `countries`; LinkedIn `format: "poll"` with `poll_question` / `poll_options` / `poll_duration_days`, plus `countries` and `reshare_urn`; Threads `topic_tag`; TikTok `upload_as_draft`, `cover_url`, `thumb_offset`; Instagram `audio_id`, `audio_volume`, `video_volume`, `strip_audio`.
+- **`cover_file`** on Instagram, TikTok, YouTube and Pinterest params: a local path is uploaded with the post (the request switches to multipart even without `media_files`); a base64 data URL is sent as-is. Works on `posts.create` and `posts.update`.
+- `posts.create(skip_duplicate_check: true)` sends `X-Skip-Duplicate-Check`. `media` items may be `{ url: }` hashes as well as strings.
+- `PlatformResult` gains `profile_id`, `profile_name`, `permalink` and `attachments` (`PlatformAttachment`); `ThreadChild` gains `platforms`, so you can see whether each item in a thread went out. `Post` gains `draft` and `source`.
+- `profile_groups.initialize_connection` takes `onboarding:` (`"instagram"` / `"facebook"` for Instagram, `"api"` / `"business_app"` for WhatsApp) and `refresh_connection:`.
+- **Webhooks:** `platform_post.edited`, `platform_post.edit_failed`, `profile.placements_synced`, `placement.orphaned`, `placement.restored`, `comment.delivery_unconfirmed`, `comment.edited`, `comment.edit_failed`, `profile_comment.deleted`, `message_template.status_updated`, `message_template.category_updated`, `placement.name_status_updated`, `placement.quality_updated` and `whatsapp.automatic_event`, plus the previously missing `comment.failed`, `comment.failed_waiting_for_retry`, `profile_comment.failed`, `profile_comment.failed_waiting_for_retry` and `referral.received`. `WebhookEvents.parse` raised `WebhookParseError` on these before. New typed payloads: `PlacementEventData`, `PlacementsSyncedData`, `WebhookChatData`, `ReferralEventData`, `MessageTemplateEventData`, `WhatsAppAutomaticEventData`; `ProfileEventData` gains `platform_id` and `origin`, `CommentCreatedData` gains `profile_id`, `error`, `error_details` and `external_edited_at`, `ProfileCommentCreatedData` gains `error`, `error_details` and `permalink`.
+- `PostProxy::ForbiddenError` (403 — account canceled or past due, or the platform refused) and `PostProxy::RateLimitError` (429, with `retry_after` from the `Retry-After` header). Both subclass `PostProxy::Error`.
+- Constants: `INSTAGRAM_TRIAL_STRATEGIES`, `INSTAGRAM_AUDIO_TYPES`, `CONNECTION_ONBOARDINGS`, `DAILY_STATS_ATTRIBUTIONS`, `PROFILE_INACTIVE_REASONS`, `POST_SYNC_TRIGGERS`, `POST_SYNC_STATUSES`; `LINKEDIN_FORMATS` gains `poll`.
+- Examples: `google_business.rb`, `whatsapp_templates.rb`, `whatsapp_groups.rb`, `dm_carousel.rb`, `edit_published_post.rb`; a `cover_file` post in `create_post.rb` and onboarding options in `initialize_connection.rb`.
+
+### Changed
+
+- `InstagramParams#trial_strategy` takes `"MANUAL"` or `"SS_PERFORMANCE"` (documented; the API never accepted a boolean).
+- `posts.update` on a **published** post now edits it on the platforms: only `body`, `platforms.youtube.title`, `platforms.pinterest.title` and `platforms.pinterest.destination_link` may change.
+
+### Fixed
+
+- Multipart requests sent repeated fields as `profiles[][]` / `media[][]` (read by Rails as nested arrays); they now go out as `profiles[]` / `media[]`. Array platform params (e.g. `alt_text`) are sent as `[]` parts and arrays of hashes (e.g. Instagram `user_tags`) with indexed keys, instead of their `to_s`.
+
 ## [1.13.0] - 2026-08-17
 
 ### Added

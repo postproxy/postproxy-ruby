@@ -330,3 +330,74 @@ RSpec.describe PostProxy::Resources::Comments do
     end
   end
 end
+
+RSpec.describe PostProxy::Resources::Comments, "edit, pin, rich private replies" do
+  let(:client) { new_client }
+  let(:base) { "#{BASE_URL}/api/posts/post_1/comments/c_1" }
+
+  def accepted
+    { status: 202, body: { accepted: true }.to_json, headers: { "Content-Type" => "application/json" } }
+  end
+
+  it "edits a comment" do
+    stub = stub_request(:patch, base)
+      .with(query: { profile_id: "prof_1" }, body: { body: "Fixed typo" })
+      .to_return(accepted)
+
+    result = client.comments.edit("post_1", "c_1", "Fixed typo", profile_id: "prof_1")
+    expect(stub).to have_been_requested
+    expect(result.accepted).to be true
+  end
+
+  it "pins and unpins a comment" do
+    pin = stub_request(:post, "#{base}/pin").with(query: { profile_id: "prof_1" }).to_return(accepted)
+    unpin = stub_request(:post, "#{base}/unpin").with(query: { profile_id: "prof_1" }).to_return(accepted)
+
+    client.comments.pin("post_1", "c_1", profile_id: "prof_1")
+    client.comments.unpin("post_1", "c_1", profile_id: "prof_1")
+    [pin, unpin].each { |s| expect(s).to have_been_requested }
+  end
+
+  it "sends interactive elements in a private reply" do
+    stub = stub_request(:post, "#{base}/private_reply")
+      .with(query: { profile_id: "prof_1" }, body: {
+        text: "",
+        quick_replies: [{ title: "More", payload: "MORE" }],
+        elements: [{
+          title: "Sneaker", image_url: "https://img.test/s.jpg",
+          buttons: [{ type: "web_url", title: "Buy", url: "https://shop.test" }]
+        }]
+      })
+      .to_return(status: 202, body: { id: "msg_1", chat_id: "chat_1" }.to_json,
+        headers: { "Content-Type" => "application/json" })
+
+    message = client.comments.private_reply("post_1", "c_1",
+      profile_id: "prof_1",
+      text: "",
+      elements: [
+        PostProxy::MessageElement.new(
+          title: "Sneaker", image_url: "https://img.test/s.jpg",
+          buttons: [{ type: "web_url", title: "Buy", url: "https://shop.test" }]
+        )
+      ],
+      quick_replies: [{ title: "More", payload: "MORE" }])
+    expect(stub).to have_been_requested
+    expect(message).to be_a(PostProxy::Message)
+  end
+
+  it "filters bulk comments by placement" do
+    stub = stub_api(:get, "/comments",
+      body: { total: 0, page: 1, per_page: 20, data: [] },
+      query: { placement_id: "page_1" })
+
+    client.comments.list_all(placement_id: "page_1")
+    expect(stub).to have_been_requested
+  end
+
+  it "parses external_edited_at" do
+    comment = PostProxy::Comment.new(id: "c_1", body: "x", external_edited_at: "2026-09-01T00:00:00Z")
+    expect(comment.external_edited_at).to be_a(Time)
+    bulk = PostProxy::BulkComment.new(id: "c_1", body: "x", external_edited_at: nil)
+    expect(bulk.external_edited_at).to be_nil
+  end
+end

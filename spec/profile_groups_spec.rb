@@ -84,3 +84,33 @@ RSpec.describe PostProxy::Resources::ProfileGroups do
     end
   end
 end
+
+RSpec.describe PostProxy::Resources::ProfileGroups, "onboarding" do
+  let(:client) { new_client }
+  let(:url) { "#{BASE_URL}/api/profile_groups/pg_1/initialize_connection" }
+
+  def connection_response
+    { status: 200, body: { url: "https://x", success: true }.to_json, headers: { "Content-Type" => "application/json" } }
+  end
+
+  it "passes onboarding and refresh_connection" do
+    stub = stub_request(:post, url)
+      .with(body: { platform: "instagram", redirect_url: "https://app.test/cb", onboarding: "facebook",
+                    refresh_connection: true })
+      .to_return(connection_response)
+
+    client.profile_groups.initialize_connection("pg_1",
+      platform: "instagram", redirect_url: "https://app.test/cb", onboarding: "facebook", refresh_connection: true)
+    expect(stub).to have_been_requested
+  end
+
+  it "connects WhatsApp through the Business app" do
+    stub = stub_request(:post, url)
+      .with(body: { platform: "whatsapp", redirect_url: "https://app.test/cb", onboarding: "business_app" })
+      .to_return(connection_response)
+
+    client.profile_groups.initialize_connection("pg_1",
+      platform: "whatsapp", redirect_url: "https://app.test/cb", onboarding: "business_app")
+    expect(stub).to have_been_requested
+  end
+end

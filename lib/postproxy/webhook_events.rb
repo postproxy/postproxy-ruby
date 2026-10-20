@@ -52,7 +52,32 @@ module PostProxy
     end
 
     class ProfileEventData < Model
-      attr_accessor :id, :name, :platform, :profile_group_id, :status, :uid, :username
+      # `origin` is set on `profile.disconnected`: "user" or "automated".
+      attr_accessor :id, :name, :platform, :profile_group_id, :status, :uid,
+                    :platform_id, :username, :origin
+    end
+
+    # `id` is the placement's id on the platform (page id, phone number id,
+    # ...). `placement.name_status_updated` adds `decision`, `requested_name`
+    # and `rejection_reason`; `placement.quality_updated` adds `event`,
+    # `current_limit` and `old_limit`.
+    class PlacementEventData < Model
+      attr_accessor :id, :name, :platform, :profile_group_id, :profile_id,
+                    :profile_name, :metadata, :decision, :requested_name,
+                    :rejection_reason, :event, :current_limit, :old_limit
+    end
+
+    class PlacementsSyncedData < ProfileEventData
+      attr_accessor :placements_sync_status, :placements
+
+      def initialize(**attrs)
+        @placements_sync_status = nil
+        @placements = []
+        super
+        @placements = (@placements || []).map do |p|
+          p.is_a?(PlacementEventData) ? p : PlacementEventData.new(**p.transform_keys(&:to_sym))
+        end
+      end
     end
 
     class ProfileStatsData < Model
@@ -68,7 +93,14 @@ module PostProxy
                     :parent_external_id, :body, :status, :author_external_id,
                     :author_name, :author_username, :author_avatar_url,
                     :like_count, :reply_count, :is_hidden, :permalink,
-                    :platform_data, :posted_at, :created_at
+                    :platform_data, :profile_id, :error, :error_details,
+                    :external_edited_at, :posted_at, :created_at
+
+      def initialize(**attrs)
+        @error_details = nil
+        super
+        @error_details = ErrorDetails.new(**@error_details.transform_keys(&:to_sym)) if @error_details.is_a?(Hash)
+      end
     end
 
     class MessageEventData < Model
@@ -97,7 +129,42 @@ module PostProxy
     class ProfileCommentCreatedData < Model
       attr_accessor :id, :profile_id, :platform, :placement_id, :external_id,
                     :parent_external_id, :body, :status, :author_username,
-                    :author_avatar_url, :platform_data, :posted_at, :created_at
+                    :author_avatar_url, :platform_data, :error, :error_details,
+                    :permalink, :posted_at, :created_at
+
+      def initialize(**attrs)
+        @error_details = nil
+        super
+        @error_details = ErrorDetails.new(**@error_details.transform_keys(&:to_sym)) if @error_details.is_a?(Hash)
+      end
+    end
+
+    class WebhookChatData < Model
+      attr_accessor :id, :profile_id, :platform, :external_placement_id, :group,
+                    :participant_external_id, :participant_username,
+                    :participant_name, :last_inbound_at, :last_outbound_at,
+                    :last_message_at
+    end
+
+    # `ctwa_clid` is the click-to-WhatsApp ad click id.
+    class ReferralEventData < Model
+      attr_accessor :chat, :ref, :source, :type, :ctwa_clid, :occurred_at
+
+      def initialize(**attrs)
+        @chat = nil
+        super
+        @chat = WebhookChatData.new(**@chat.transform_keys(&:to_sym)) if @chat.is_a?(Hash)
+      end
+    end
+
+    class MessageTemplateEventData < Model
+      attr_accessor :id, :external_id, :profile_id, :platform, :name, :language,
+                    :category, :status, :rejected_reason, :quality_score
+    end
+
+    class WhatsAppAutomaticEventData < Model
+      attr_accessor :profile_id, :chat_id, :participant_external_id,
+                    :external_message_id, :event_name, :ctwa_clid, :custom_data
     end
 
     DATA_CLASSES = {
@@ -106,13 +173,26 @@ module PostProxy
       "platform_post.published" => PlatformPostData,
       "platform_post.failed" => PlatformPostData,
       "platform_post.failed_waiting_for_retry" => PlatformPostData,
+      "platform_post.edited" => PlatformPostData,
+      "platform_post.edit_failed" => PlatformPostData,
       "platform_post.insights" => PlatformPostData,
       "profile.connected" => ProfileEventData,
       "profile.disconnected" => ProfileEventData,
       "profile.stats" => ProfileStatsData,
+      "profile.placements_synced" => PlacementsSyncedData,
+      "placement.orphaned" => PlacementEventData,
+      "placement.restored" => PlacementEventData,
       "media.failed" => MediaFailedData,
       "comment.created" => CommentCreatedData,
+      "comment.failed" => CommentCreatedData,
+      "comment.failed_waiting_for_retry" => CommentCreatedData,
+      "comment.delivery_unconfirmed" => CommentCreatedData,
+      "comment.edited" => CommentCreatedData,
+      "comment.edit_failed" => CommentCreatedData,
       "profile_comment.created" => ProfileCommentCreatedData,
+      "profile_comment.failed" => ProfileCommentCreatedData,
+      "profile_comment.failed_waiting_for_retry" => ProfileCommentCreatedData,
+      "profile_comment.deleted" => ProfileCommentCreatedData,
       "message.received" => MessageEventData,
       "message.sent" => MessageEventData,
       "message.delivered" => MessageEventData,
@@ -121,7 +201,13 @@ module PostProxy
       "message.deleted" => MessageEventData,
       "message.failed_waiting_for_retry" => MessageEventData,
       "message.failed" => MessageEventData,
-      "reaction.received" => ReactionEventData
+      "reaction.received" => ReactionEventData,
+      "referral.received" => ReferralEventData,
+      "message_template.status_updated" => MessageTemplateEventData,
+      "message_template.category_updated" => MessageTemplateEventData,
+      "placement.name_status_updated" => PlacementEventData,
+      "placement.quality_updated" => PlacementEventData,
+      "whatsapp.automatic_event" => WhatsAppAutomaticEventData
     }.freeze
 
     # Parse a webhook body and return a typed Event. `data` is parsed into the

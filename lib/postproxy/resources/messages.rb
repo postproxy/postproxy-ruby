@@ -28,9 +28,21 @@ module PostProxy
       # URLs rather than media_files when combining with an attachment.
       #
       # Each accepts model instances or plain hashes.
+      #
+      # `elements` sends a carousel of up to 10 cards (Facebook and Instagram);
+      # it can't be combined with body, buttons or card.
+      #
+      # WhatsApp: send exactly one of body, media, `template`, `interactive`,
+      # `location` or `contacts`. Outside the 24-hour window only a `template`
+      # gets through. `category: "utility"` sends a text message under the
+      # utility category; `link_preview` toggles URL previews, `voice_note`
+      # delivers an audio attachment as a voice note, and `filename` names a
+      # document attachment.
       def send_message(chat_id, body: nil, media: nil, media_files: nil, tag: nil,
                        reply_to_external_id: nil, reply_markup: nil,
-                       quick_replies: nil, buttons: nil, card: nil,
+                       quick_replies: nil, buttons: nil, card: nil, elements: nil,
+                       template: nil, interactive: nil, location: nil, contacts: nil,
+                       category: nil, link_preview: nil, voice_note: nil, filename: nil,
                        profile_group_id: nil, idempotency_key: nil)
         has_files = media_files && !media_files.empty?
 
@@ -39,6 +51,8 @@ module PostProxy
           form_data["body"] = body if body
           form_data["tag"] = tag if tag
           form_data["reply_to_external_id"] = reply_to_external_id if reply_to_external_id
+          form_data["voice_note"] = voice_note.to_s unless voice_note.nil?
+          form_data["filename"] = filename if filename
 
           files = []
           media&.each do |m|
@@ -68,6 +82,15 @@ module PostProxy
           json_body[:quick_replies] = quick_replies.map { |q| serialize_interactive(q) } if quick_replies
           json_body[:buttons] = buttons.map { |b| serialize_interactive(b) } if buttons
           json_body[:card] = serialize_interactive(card) if card
+          json_body[:elements] = elements.map { |e| serialize_interactive(e) } if elements
+          json_body[:template] = serialize_interactive(template) if template
+          json_body[:interactive] = interactive if interactive
+          json_body[:location] = serialize_interactive(location) if location
+          json_body[:contacts] = contacts if contacts
+          json_body[:category] = category if category
+          json_body[:link_preview] = link_preview unless link_preview.nil?
+          json_body[:voice_note] = voice_note unless voice_note.nil?
+          json_body[:filename] = filename if filename
 
           result = @client.request(:post, "/chats/#{chat_id}/messages",
             json: json_body,
@@ -141,6 +164,7 @@ module PostProxy
         when ".mp3" then "audio/mpeg"
         when ".ogg" then "audio/ogg"
         when ".m4a" then "audio/mp4"
+        when ".pdf" then "application/pdf"
         else "application/octet-stream"
         end
       end

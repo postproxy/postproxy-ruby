@@ -1,4 +1,5 @@
 require "spec_helper"
+require "tempfile"
 
 RSpec.describe PostProxy::Resources::Posts do
   let(:client) { new_client }
@@ -428,5 +429,154 @@ RSpec.describe PostProxy::Resources::Posts do
       client.posts.delete_on_platform("post-1", post_profile_id: "pp-1")
       expect(stub).to have_been_requested
     end
+  end
+end
+
+RSpec.describe PostProxy::Resources::Posts, "new platform params" do
+  let(:client) { new_client }
+  let(:post_body) { { id: "p", body: "hi", status: "pending", created_at: "2026-09-01T00:00:00Z", platforms: [] } }
+
+  before { stub_api(:post, "/posts", body: post_body) }
+
+  def sent_json
+    body = nil
+    expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/posts").with { |req| body = JSON.parse(req.body) }
+    body
+  end
+
+  it "accepts { url: } media items" do
+    client.posts.create("hi", profiles: ["prof_1"], media: ["https://a.test/1.jpg", { url: "https://a.test/2.jpg" }])
+    expect(sent_json["media"]).to eq(["https://a.test/1.jpg", { "url" => "https://a.test/2.jpg" }])
+  end
+
+  it "sends new platform params in JSON" do
+    platforms = PostProxy::PlatformParams.new(
+      facebook: PostProxy::FacebookParams.new(link: "https://acme.test", countries: %w[US CA]),
+      instagram: PostProxy::InstagramParams.new(
+        format: "reel", audio_id: "123", audio_volume: 40, video_volume: 80,
+        trial_strategy: "MANUAL", made_with_ai: true, strip_audio: false
+      ),
+      linkedin: PostProxy::LinkedInParams.new(
+        format: "poll", organization_id: "1", poll_question: "Tabs or spaces?",
+        poll_options: %w[Tabs Spaces], poll_duration_days: 3, reshare_urn: "urn:li:share:1"
+      ),
+      threads: PostProxy::ThreadsParams.new(topic_tag: "Coffee", alt_text: "A cup"),
+      tiktok: PostProxy::TikTokParams.new(
+        format: "video", upload_as_draft: true, cover_url: "https://a.test/c.jpg", thumb_offset: 1500
+      ),
+      twitter: PostProxy::TwitterParams.new(alt_text: %w[one two]),
+      bluesky: PostProxy::BlueskyParams.new(alt_text: "sky"),
+      pinterest: PostProxy::PinterestParams.new(alt_text: "pin")
+    )
+
+    client.posts.create("hi", profiles: ["prof_1"], platforms: platforms)
+    expect(sent_json["platforms"]).to eq(
+      "facebook" => { "link" => "https://acme.test", "countries" => %w[US CA] },
+      "instagram" => {
+        "format" => "reel", "audio_id" => "123", "audio_volume" => 40, "video_volume" => 80,
+        "trial_strategy" => "MANUAL", "made_with_ai" => true, "strip_audio" => false
+      },
+      "linkedin" => {
+        "format" => "poll", "organization_id" => "1", "poll_question" => "Tabs or spaces?",
+        "poll_options" => %w[Tabs Spaces], "poll_duration_days" => 3, "reshare_urn" => "urn:li:share:1"
+      },
+      "threads" => { "topic_tag" => "Coffee", "alt_text" => "A cup" },
+      "tiktok" => {
+        "format" => "video", "upload_as_draft" => true, "cover_url" => "https://a.test/c.jpg", "thumb_offset" => 1500
+      },
+      "twitter" => { "alt_text" => %w[one two] },
+      "bluesky" => { "alt_text" => "sky" },
+      "pinterest" => { "alt_text" => "pin" }
+    )
+  end
+
+  it "sends X-Skip-Duplicate-Check only when requested" do
+    client.posts.create("hello", profiles: ["prof_1"], skip_duplicate_check: true)
+    expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/posts")
+      .with(headers: { "X-Skip-Duplicate-Check" => "true" }).once
+
+    WebMock.reset_executed_requests!
+    client.posts.create("hello", profiles: ["prof_1"])
+    expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/posts")
+      .with { |req| !req.headers.key?("X-Skip-Duplicate-Check") }.once
+  end
+end
+
+RSpec.describe PostProxy::Resources::Posts, "cover_file" do
+  let(:client) { new_client }
+  let(:post_body) { { id: "p", body: "x", status: "pending", created_at: "2026-09-01T00:00:00Z", platforms: [] } }
+  let(:cover) do
+    file = Tempfile.new(["cover", ".jpg"])
+    file.write("fake-jpeg")
+    file.flush
+    file
+  end
+
+  after { cover.close! }
+
+  it "uploads a local cover_file as multipart even without media_files" do
+    stub_api(:post, "/posts", body: post_body)
+
+    client.posts.create("New video", profiles: ["tt-profile"],
+      media: ["https://a.test/clip.mp4"],
+      platforms: { tiktok: { format: "video", cover_file: cover.path } })
+
+    expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/posts").with { |req|
+      body = req.body
+      req.headers["Content-Type"].include?("multipart/form-data") &&
+        body.include?(%(name="platforms[tiktok][cover_file]"; filename="#{File.basename(cover.path)}")) &&
+        body.include?("fake-jpeg") &&
+        body.include?(%(name="platforms[tiktok][format]")) &&
+        body.include?(%(name="media[]"))
+    }
+  end
+
+  it "uploads a local cover_file on update" do
+    stub_api(:patch, "/posts/post-1", body: post_body)
+
+    client.posts.update("post-1",
+      platforms: PostProxy::PlatformParams.new(youtube: PostProxy::YouTubeParams.new(cover_file: cover.path)))
+
+    expect(WebMock).to have_requested(:patch, "#{BASE_URL}/api/posts/post-1").with { |req|
+      req.headers["Content-Type"].include?("multipart/form-data") &&
+        req.body.include?(%(name="platforms[youtube][cover_file]"; filename=))
+    }
+  end
+
+  it "sends a base64 data URL cover_file as JSON" do
+    stub_api(:post, "/posts", body: post_body)
+    data_url = "data:image/png;base64,iVBORw0KGgo="
+
+    client.posts.create("Pin", profiles: ["pin-profile"],
+      media: ["https://a.test/v.mp4"],
+      platforms: { pinterest: { board_id: "b1", cover_file: data_url } })
+
+    expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/posts").with { |req|
+      JSON.parse(req.body)["platforms"] == { "pinterest" => { "board_id" => "b1", "cover_file" => data_url } }
+    }
+  end
+
+  it "encodes array params and repeated fields as flat [] parts in multipart" do
+    stub_api(:post, "/posts", body: post_body)
+
+    client.posts.create("Multi", profiles: %w[p1 p2],
+      media: ["https://a.test/1.jpg", { url: "https://a.test/2.jpg" }],
+      platforms: {
+        instagram: {
+          cover_file: cover.path,
+          alt_text: %w[first second],
+          user_tags: [{ username: "nasa", x: 0.1, y: 0.2 }]
+        }
+      })
+
+    expect(WebMock).to have_requested(:post, "#{BASE_URL}/api/posts").with { |req|
+      names = req.body.scan(/name="([^"]+)"/).flatten
+      names.count("profiles[]") == 2 &&
+        names.count("media[]") == 2 &&
+        names.count("platforms[instagram][alt_text][]") == 2 &&
+        names.include?("platforms[instagram][user_tags][0][username]") &&
+        req.body.include?("https://a.test/2.jpg") &&
+        names.none? { |n| n.include?("[][]") }
+    }
   end
 end

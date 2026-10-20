@@ -252,3 +252,90 @@ RSpec.describe PostProxy::Resources::Messages do
     end
   end
 end
+
+RSpec.describe PostProxy::Resources::Messages, "carousels and WhatsApp payloads" do
+  let(:client) { new_client }
+  let(:url) { "#{BASE_URL}/api/chats/chat_1/messages" }
+
+  def stub_send(body)
+    stub_request(:post, url).with(body: body)
+      .to_return(status: 202, body: { id: "msg_1" }.to_json, headers: { "Content-Type" => "application/json" })
+  end
+
+  it "sends a carousel" do
+    stub = stub_send(elements: [
+      { title: "Red", image_url: "https://img.test/r.jpg" },
+      { title: "Blue", subtitle: "Restocked", buttons: [{ type: "postback", title: "Pick", payload: "BLUE" }] }
+    ])
+
+    client.messages.send("chat_1", elements: [
+      PostProxy::MessageElement.new(title: "Red", image_url: "https://img.test/r.jpg"),
+      { title: "Blue", subtitle: "Restocked", buttons: [{ type: "postback", title: "Pick", payload: "BLUE" }] }
+    ])
+    expect(stub).to have_been_requested
+  end
+
+  it "sends a WhatsApp template" do
+    template = {
+      name: "order_update",
+      language: "en_US",
+      variables: ["#1234"],
+      button_params: [{ index: 0, sub_type: "url", text: "1234" }]
+    }
+    stub = stub_send(template: template)
+
+    client.messages.send("chat_1", template: PostProxy::MessageTemplateInput.new(**template))
+    expect(stub).to have_been_requested
+  end
+
+  it "sends WhatsApp location, contacts and send options" do
+    stubs = [
+      stub_send(location: { latitude: 52.5, longitude: 13.4, name: "Store" }),
+      stub_send(contacts: [{ name: { formatted_name: "Jane" } }]),
+      stub_send(body: "Your code is 1234", category: "utility", link_preview: false),
+      stub_send(media: ["https://files.test/a.pdf"], filename: "invoice.pdf"),
+      stub_send(media: ["https://files.test/a.ogg"], voice_note: true),
+      stub_send(interactive: { type: "button", body: { text: "Pick" } })
+    ]
+
+    client.messages.send("chat_1",
+      location: PostProxy::MessageLocation.new(latitude: 52.5, longitude: 13.4, name: "Store"))
+    client.messages.send("chat_1", contacts: [{ name: { formatted_name: "Jane" } }])
+    client.messages.send("chat_1", body: "Your code is 1234", category: "utility", link_preview: false)
+    client.messages.send("chat_1", media: ["https://files.test/a.pdf"], filename: "invoice.pdf")
+    client.messages.send("chat_1", media: ["https://files.test/a.ogg"], voice_note: true)
+    client.messages.send("chat_1", interactive: { type: "button", body: { text: "Pick" } })
+
+    stubs.each { |s| expect(s).to have_been_requested }
+  end
+
+  it "parses the new message fields" do
+    msg = PostProxy::Message.new(
+      id: "msg_1", chat_id: "chat_1", direction: "outbound", status: "failed",
+      elements: [{ title: "Red", buttons: [{ type: "postback", title: "Pick", payload: "RED" }] }],
+      story_reply: { story_id: "s1" },
+      location: { latitude: 1.5, longitude: 2.5 },
+      contacts: [{ name: { formatted_name: "Jane" } }],
+      interactive: { type: "button" },
+      template: { id: "tpl_1", external_id: nil, name: "order_update", language: "en_US", variables: ["x"] },
+      error_details: { platform_error_code: 131_047, platform_error_message: "Re-engagement" }
+    )
+
+    expect(msg.elements.first).to be_a(PostProxy::MessageElement)
+    expect(msg.elements.first.buttons.first).to be_a(PostProxy::MessageButton)
+    expect(msg.location).to be_a(PostProxy::MessageLocation)
+    expect(msg.location.latitude).to eq(1.5)
+    expect(msg.template).to be_a(PostProxy::MessageTemplateRef)
+    expect(msg.template.name).to eq("order_update")
+    expect(msg.error_details).to be_a(PostProxy::ErrorDetails)
+    expect(msg.story_reply[:story_id]).to eq("s1")
+    expect(msg.contacts.first[:name][:formatted_name]).to eq("Jane")
+  end
+
+  it "leaves the new fields nil when absent" do
+    msg = PostProxy::Message.new(id: "msg_1", chat_id: "chat_1", direction: "inbound", status: "received")
+    expect(msg.elements).to be_nil
+    expect(msg.template).to be_nil
+    expect(msg.location).to be_nil
+  end
+end

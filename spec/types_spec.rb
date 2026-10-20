@@ -285,3 +285,76 @@ RSpec.describe "PostProxy types" do
     end
   end
 end
+
+RSpec.describe "PostProxy types added in 1.14" do
+  it "parses new Profile fields" do
+    profile = PostProxy::Profile.new(
+      id: "prof-1", name: "Acme", username: "acme", status: "inactive", inactive_reason: "network_taken",
+      platform: "instagram", platform_id: "1784", profile_group_id: "pg-1",
+      avatar_url: "https://img.test/a.jpg", platform_url: "https://instagram.com/acme",
+      placements_sync_status: "completed"
+    )
+    expect(profile.username).to eq("acme")
+    expect(profile.inactive_reason).to eq("network_taken")
+    expect(profile.platform_id).to eq("1784")
+    expect(profile.placements_sync_status).to eq("completed")
+  end
+
+  it "parses new Post, PlatformResult and ThreadChild fields" do
+    post = PostProxy::Post.new(
+      id: "post-1", body: "Hi", status: "processed", created_at: "2026-09-01T00:00:00Z",
+      draft: false, source: "imported",
+      platforms: [{
+        platform: "tiktok", profile_id: "prof-1", profile_name: "Acme", status: "published",
+        permalink: "https://tiktok.com/@acme/video/1",
+        attachments: [{ id: "att-1", type: "cover", status: "processed", content_type: "image/jpeg",
+                        url: "https://cdn.test/c.jpg" }]
+      }],
+      thread: [{ id: "t1", body: "two", media: [], platforms: [{ platform: "twitter", status: "published" }] }]
+    )
+
+    expect(post.draft).to be false
+    expect(post.source).to eq("imported")
+    result = post.platforms.first
+    expect(result.profile_id).to eq("prof-1")
+    expect(result.permalink).to include("tiktok.com")
+    expect(result.attachments.first).to be_a(PostProxy::PlatformAttachment)
+    expect(result.attachments.first.type).to eq("cover")
+    expect(post.thread.first.platforms.first).to be_a(PostProxy::PlatformResult)
+  end
+
+  it "leaves PlatformResult#attachments nil when absent" do
+    expect(PostProxy::PlatformResult.new(platform: "x", status: "pending").attachments).to be_nil
+  end
+
+  it "parses Placement#avatar_url and PostSync#placement_id" do
+    expect(PostProxy::Placement.new(id: "1", name: "P", avatar_url: "u").avatar_url).to eq("u")
+    expect(PostProxy::PostSync.new(id: "s", placement_id: "pl").placement_id).to eq("pl")
+  end
+
+  it "serializes MessageElement, MessageLocation and MessageTemplateInput with nils dropped" do
+    element = PostProxy::MessageElement.new(
+      title: "Red", default_action: { type: "web_url", url: "https://shop.test" },
+      buttons: [PostProxy::MessageButton.new(type: "postback", title: "Pick", payload: "RED")]
+    )
+    expect(element.to_h).to eq(
+      title: "Red",
+      default_action: { type: "web_url", url: "https://shop.test" },
+      buttons: [{ type: "postback", title: "Pick", payload: "RED" }]
+    )
+    expect(PostProxy::MessageLocation.new(latitude: 1, longitude: 2).to_h).to eq(latitude: 1, longitude: 2)
+    template = PostProxy::MessageTemplateInput.new(
+      name: "t", language: "en", header_location: PostProxy::MessageLocation.new(latitude: 1, longitude: 2)
+    )
+    expect(template.to_h).to eq(name: "t", language: "en", header_location: { latitude: 1, longitude: 2 })
+  end
+
+  it "exposes the new constants" do
+    expect(PostProxy::PLATFORMS).to include("whatsapp")
+    expect(PostProxy::LINKEDIN_FORMATS).to include("poll")
+    expect(PostProxy::INSTAGRAM_TRIAL_STRATEGIES).to eq(%w[MANUAL SS_PERFORMANCE])
+    expect(PostProxy::CONNECTION_ONBOARDINGS).to eq(%w[instagram facebook api business_app])
+    expect(PostProxy::DAILY_STATS_ATTRIBUTIONS).to eq(%w[received publish])
+    expect(PostProxy::PROFILE_INACTIVE_REASONS).to eq(%w[network_taken])
+  end
+end
