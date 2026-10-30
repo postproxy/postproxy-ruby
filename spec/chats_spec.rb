@@ -138,4 +138,52 @@ RSpec.describe PostProxy::Resources::Chats, "read receipts, typing, WhatsApp" do
     expect(started.accepted).to be true
     [start, stop].each { |s| expect(s).to have_been_requested }
   end
+
+  it "passes thread control to another app" do
+    stub = stub_request(:post, "#{BASE_URL}/api/chats/#{chat_id}/pass_thread_control")
+      .with(body: { target_app_id: "263902037430900", metadata: "escalated to support" })
+      .to_return(status: 200, body: mock_chat.to_json, headers: { "Content-Type" => "application/json" })
+
+    chat = client.chats.pass_thread_control(chat_id, target_app_id: "263902037430900",
+      metadata: "escalated to support")
+    expect(stub).to have_been_requested
+    expect(chat).to be_a(PostProxy::Chat)
+    expect(chat.id).to eq("chat_xyz789")
+  end
+
+  it "takes, releases and requests thread control" do
+    take = stub_request(:post, "#{BASE_URL}/api/chats/#{chat_id}/take_thread_control")
+      .with(body: {})
+      .to_return(status: 200, body: mock_chat.to_json, headers: { "Content-Type" => "application/json" })
+    release = stub_request(:post, "#{BASE_URL}/api/chats/#{chat_id}/release_thread_control")
+      .with(body: { metadata: "done" })
+      .to_return(status: 200, body: mock_chat.to_json, headers: { "Content-Type" => "application/json" })
+    request = stub_api(:post, "/chats/#{chat_id}/request_thread_control", body: mock_chat)
+
+    client.chats.take_thread_control(chat_id)
+    client.chats.release_thread_control(chat_id, metadata: "done")
+    chat = client.chats.request_thread_control(chat_id)
+
+    expect(chat).to be_a(PostProxy::Chat)
+    [take, release, request].each { |s| expect(s).to have_been_requested }
+  end
+
+  it "gets the thread owner" do
+    stub = stub_api(:get, "/chats/#{chat_id}/thread_owner",
+      body: { app_id: "263902037430900", expires_at: "2026-10-28T12:00:00Z" })
+
+    owner = client.chats.thread_owner(chat_id)
+    expect(stub).to have_been_requested
+    expect(owner).to be_a(PostProxy::ThreadOwner)
+    expect(owner.app_id).to eq("263902037430900")
+    expect(owner.expires_at).to be_a(Time)
+  end
+
+  it "returns an idle thread owner as nils" do
+    stub_api(:get, "/chats/#{chat_id}/thread_owner", body: { app_id: nil, expires_at: nil })
+
+    owner = client.chats.thread_owner(chat_id)
+    expect(owner.app_id).to be_nil
+    expect(owner.expires_at).to be_nil
+  end
 end

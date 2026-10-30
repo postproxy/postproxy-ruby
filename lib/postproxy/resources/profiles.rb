@@ -100,6 +100,119 @@ module PostProxy
         )
       end
 
+      # Posts from other accounts that invited this Instagram profile as a
+      # collaborator. Profiles connected via Facebook login only. Pass the
+      # returned `next_cursor` as `after:` for the next page.
+      def instagram_collaboration_invites(id, after: nil, profile_group_id: nil)
+        params = {}
+        params[:after] = after if after
+
+        result = @client.request(:get, "/profiles/#{id}/instagram/collaboration_invites",
+          params: params.empty? ? nil : params,
+          profile_group_id: profile_group_id
+        )
+        InstagramCollaborationInvitesResponse.new(**result)
+      end
+
+      def accept_instagram_collaboration_invite(id, media_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:post, "/profiles/#{id}/instagram/accept_collaboration_invite",
+          json: { media_id: media_id },
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        InstagramCollaborationInviteResult.new(**result)
+      end
+
+      def decline_instagram_collaboration_invite(id, media_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:post, "/profiles/#{id}/instagram/decline_collaboration_invite",
+          json: { media_id: media_id },
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        InstagramCollaborationInviteResult.new(**result)
+      end
+
+      # Pinterest only. Boards are the profile's placements; the new board's
+      # `id` is the `board_id` you publish to. `privacy` is "PUBLIC" or
+      # "PROTECTED".
+      def create_pinterest_board(id, name, description: nil, privacy: nil, profile_group_id: nil,
+        idempotency_key: nil)
+        json_body = { name: name }
+        json_body[:description] = description unless description.nil?
+        json_body[:privacy] = privacy unless privacy.nil?
+
+        result = @client.request(:post, "/profiles/#{id}/pinterest/create_board",
+          json: json_body,
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        Placement.new(**result)
+      end
+
+      # Also deletes every Pin on the board, on Pinterest. Cannot be undone.
+      def delete_pinterest_board(id, board_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:delete, "/profiles/#{id}/pinterest/delete_board",
+          params: { board_id: board_id },
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        PinterestBoardDeleted.new(**result)
+      end
+
+      # YouTube only. Up to 50 playlists per page; pass the returned
+      # `next_page_token` as `page_token:` for the next one.
+      def youtube_playlists(id, page_token: nil, profile_group_id: nil)
+        params = {}
+        params[:page_token] = page_token if page_token
+
+        result = @client.request(:get, "/profiles/#{id}/youtube/playlists",
+          params: params.empty? ? nil : params,
+          profile_group_id: profile_group_id
+        )
+        YouTubePlaylistsResponse.new(**result)
+      end
+
+      # `privacy_status` is "public", "unlisted" or "private".
+      def create_youtube_playlist(id, title, description: nil, privacy_status: nil, profile_group_id: nil,
+        idempotency_key: nil)
+        json_body = { title: title }
+        json_body[:description] = description unless description.nil?
+        json_body[:privacy_status] = privacy_status unless privacy_status.nil?
+
+        result = @client.request(:post, "/profiles/#{id}/youtube/create_playlist",
+          json: json_body,
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        YouTubePlaylist.new(**result)
+      end
+
+      # Fields left out keep their current value; `description: ""` clears it.
+      def update_youtube_playlist(id, playlist_id, title: nil, description: nil, privacy_status: nil,
+        profile_group_id: nil, idempotency_key: nil)
+        json_body = { playlist_id: playlist_id }
+        json_body[:title] = title unless title.nil?
+        json_body[:description] = description unless description.nil?
+        json_body[:privacy_status] = privacy_status unless privacy_status.nil?
+
+        result = @client.request(:patch, "/profiles/#{id}/youtube/update_playlist",
+          json: json_body,
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        YouTubePlaylist.new(**result)
+      end
+
+      # The videos in the playlist are not deleted.
+      def delete_youtube_playlist(id, playlist_id, profile_group_id: nil, idempotency_key: nil)
+        result = @client.request(:delete, "/profiles/#{id}/youtube/delete_playlist",
+          params: { playlist_id: playlist_id },
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        YouTubePlaylistDeleted.new(**result)
+      end
+
       # Facebook only. `page_id` is the placement id from #placements. Returns
       # the Page fields as a hash.
       def facebook_page(id, page_id, fields: nil, profile_group_id: nil)

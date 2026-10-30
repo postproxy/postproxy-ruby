@@ -40,3 +40,12 @@ gbp.create_media(profile_id, location_id, "https://example.com/storefront.jpg",
   media_format: "PHOTO"
 )
 puts "Media: #{gbp.media(profile_id, location_id)}"
+
+# Searches that showed the location, month by month (max 12 months)
+keywords = gbp.search_keywords(profile_id, location_id, from_month: "2026-07", to_month: "2026-09")
+keywords.months.each do |month|
+  month.keywords.each do |k|
+    # Low-volume keywords report only an upper bound
+    puts "#{month.month} #{k.keyword}: #{k.impressions || "<#{k.impressions_threshold}"}"
+  end
+end

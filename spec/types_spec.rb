@@ -221,6 +221,22 @@ RSpec.describe "PostProxy types" do
     end
   end
 
+  describe "post params added in 1.15" do
+    it "serializes the new Instagram, LinkedIn and YouTube params" do
+      h = PostProxy::PlatformParams.new(
+        instagram: PostProxy::InstagramParams.new(format: "reel", disable_comment: true,
+          location_id: "110843418940484", share_to_feed: false),
+        linkedin: PostProxy::LinkedInParams.new(document_title: "Q3 report", first_comment: "Link below"),
+        youtube: PostProxy::YouTubeParams.new(title: "Intro", playlist_id: "PL1")
+      ).to_h
+
+      expect(h[:instagram]).to eq({ format: "reel", disable_comment: true,
+                                    location_id: "110843418940484", share_to_feed: false })
+      expect(h[:linkedin]).to eq({ document_title: "Q3 report", first_comment: "Link below" })
+      expect(h[:youtube]).to eq({ title: "Intro", playlist_id: "PL1" })
+    end
+  end
+
   describe PostProxy::InstagramUserTag do
     it "serializes user tags as plain hashes, dropping unset coordinates" do
       params = PostProxy::PlatformParams.new(

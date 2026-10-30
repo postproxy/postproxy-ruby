@@ -491,7 +491,9 @@ module PostProxy
     # `external_placement_id` is the page / phone number the chat runs through;
     # `group` marks a WhatsApp group chat. `within_messaging_window` is
     # WhatsApp-only: whether the 24-hour customer service window is open —
-    # when it's closed only a template can be sent.
+    # when it's closed only a template can be sent. Facebook and Instagram
+    # chats carry `thread_control` in `metadata` once known (`owner_app_id`,
+    # `expires_at`, `updated_at`).
     attr_accessor :id, :profile_id, :platform, :external_placement_id, :group,
                   :participant_external_id, :participant_username,
                   :participant_name, :participant_avatar_url,
@@ -1079,6 +1081,145 @@ module PostProxy
     attr_accessor :urn, :type, :name, :vanity_name
   end
 
+  # --- Instagram collaboration invites ---
+
+  # `media_url` is left out by Instagram for videos with copyrighted or
+  # licensed audio.
+  class InstagramCollaborationInvite < Model
+    attr_accessor :media_id, :media_owner_username, :caption, :media_url
+
+    def initialize(**attrs)
+      @media_owner_username = nil
+      @caption = nil
+      @media_url = nil
+      super
+    end
+  end
+
+  # `next_cursor` is nil on the last page.
+  class InstagramCollaborationInvitesResponse < Model
+    attr_accessor :collaboration_invites, :next_cursor
+
+    def initialize(**attrs)
+      @collaboration_invites = []
+      @next_cursor = nil
+      super
+      @collaboration_invites = (@collaboration_invites || []).map do |i|
+        i.is_a?(InstagramCollaborationInvite) ? i : InstagramCollaborationInvite.new(**i.transform_keys(&:to_sym))
+      end
+    end
+  end
+
+  # `accepted` is set by accept, `declined` by decline.
+  class InstagramCollaborationInviteResult < Model
+    attr_accessor :media_id, :accepted, :declined
+  end
+
+  # --- Pinterest ---
+
+  class PinterestBoardDeleted < Model
+    attr_accessor :deleted, :board_id
+  end
+
+  # --- YouTube ---
+
+  class YouTubePlaylist < Model
+    attr_accessor :id, :title, :description, :privacy_status, :item_count,
+                  :thumbnail_url, :published_at
+
+    def initialize(**attrs)
+      @thumbnail_url = nil
+      @item_count = 0
+      super
+      @published_at = parse_time(@published_at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
+  # `next_page_token` is nil on the last page.
+  class YouTubePlaylistsResponse < Model
+    attr_accessor :data, :next_page_token
+
+    def initialize(**attrs)
+      @data = []
+      @next_page_token = nil
+      super
+      @data = (@data || []).map do |p|
+        p.is_a?(YouTubePlaylist) ? p : YouTubePlaylist.new(**p.transform_keys(&:to_sym))
+      end
+    end
+  end
+
+  class YouTubePlaylistDeleted < Model
+    attr_accessor :deleted, :playlist_id
+  end
+
+  # --- Chat thread control ---
+
+  # Who controls a Facebook / Instagram conversation. Both nil when idle.
+  class ThreadOwner < Model
+    attr_accessor :app_id, :expires_at
+
+    def initialize(**attrs)
+      @app_id = nil
+      @expires_at = nil
+      super
+      @expires_at = parse_time(@expires_at)
+    end
+
+    private
+
+    def parse_time(value)
+      return nil if value.nil?
+      value.is_a?(Time) ? value : Time.parse(value.to_s)
+    end
+  end
+
+  # --- Google Business search keywords ---
+
+  # `impressions` is nil for low-volume keywords; `impressions_threshold`
+  # is then the upper bound Google reports instead.
+  class SearchKeyword < Model
+    attr_accessor :keyword, :impressions, :impressions_threshold
+
+    def initialize(**attrs)
+      @impressions = nil
+      @impressions_threshold = nil
+      super
+    end
+  end
+
+  # `month` is "YYYY-MM".
+  class SearchKeywordsMonth < Model
+    attr_accessor :month, :keywords
+
+    def initialize(**attrs)
+      @keywords = []
+      super
+      @keywords = (@keywords || []).map do |k|
+        k.is_a?(SearchKeyword) ? k : SearchKeyword.new(**k.transform_keys(&:to_sym))
+      end
+    end
+  end
+
+  class SearchKeywordsResponse < Model
+    attr_accessor :months
+
+    def initialize(**attrs)
+      @months = []
+      super
+      @months = (@months || []).map do |m|
+        m.is_a?(SearchKeywordsMonth) ? m : SearchKeywordsMonth.new(**m.transform_keys(&:to_sym))
+      end
+    end
+  end
+
   # Platform-specific parameter structs
 
   # `alt_text` on every params class that has it takes a single string or an
@@ -1108,11 +1249,17 @@ module PostProxy
   # `audio_volume` / `video_volume` (1-100) need a profile connected via
   # Facebook login. `strip_audio` removes the video's own track (reel, story).
   # `trial_strategy` is "MANUAL" or "SS_PERFORMANCE".
+  #
+  # `disable_comment` turns comments off right after publishing and
+  # `location_id` (the numeric id of a Facebook Page with an address) tags a
+  # location — both on posts and reels, not stories. `share_to_feed` is
+  # reels-only: `false` publishes to the Reels tab only, not the feed/grid.
   class InstagramParams < Model
     attr_accessor :format, :first_comment, :collaborators, :cover_url,
                   :cover_file, :audio_name, :audio_id, :audio_volume,
                   :video_volume, :strip_audio, :trial_strategy, :thumb_offset,
-                  :user_tags, :alt_text, :made_with_ai
+                  :user_tags, :alt_text, :made_with_ai, :disable_comment,
+                  :location_id, :share_to_feed
 
     def initialize(**attrs)
       @user_tags = nil
@@ -1151,14 +1298,21 @@ module PostProxy
   # for organization pages only (up to 25 codes). For format "poll",
   # `poll_question` (140 chars max) and `poll_options` (2-4, 30 chars max
   # each) are required; `poll_duration_days` is 1, 3, 7 (default) or 14.
+  # `document_title` is shown above an attached document (defaults to the
+  # file name). `first_comment` (1,250 characters or fewer) is posted right
+  # after publishing, as the same author; not on polls, and profiles
+  # connected before 2026-10-28 must reconnect.
   class LinkedInParams < Model
     attr_accessor :format, :organization_id, :reshare_urn, :alt_text, :countries,
-                  :poll_question, :poll_options, :poll_duration_days
+                  :poll_question, :poll_options, :poll_duration_days,
+                  :document_title, :first_comment
   end
 
+  # `playlist_id` adds the video to a playlist from Profiles#youtube_playlists.
   class YouTubeParams < Model
     attr_accessor :format, :title, :privacy_status, :cover_url, :cover_file,
-                  :made_for_kids, :tags, :category_id, :contains_synthetic_media
+                  :made_for_kids, :tags, :category_id, :contains_synthetic_media,
+                  :playlist_id
   end
 
   class PinterestParams < Model

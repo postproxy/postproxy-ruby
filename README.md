@@ -318,8 +318,8 @@ Subscribe to any of these events (or pass `["*"]` for all):
 
 - **Posts:** `post.processed`, `post.imported`, `platform_post.published`, `platform_post.failed`, `platform_post.failed_waiting_for_retry`, `platform_post.edited`, `platform_post.edit_failed`, `platform_post.insights`, `media.failed`
 - **Profiles:** `profile.connected`, `profile.disconnected`, `profile.stats`, `profile.placements_synced`, `placement.orphaned`, `placement.restored`
-- **Comments:** `comment.created`, `comment.failed`, `comment.failed_waiting_for_retry`, `comment.delivery_unconfirmed`, `comment.edited`, `comment.edit_failed`, `profile_comment.created`, `profile_comment.failed`, `profile_comment.failed_waiting_for_retry`, `profile_comment.deleted`
-- **Messages:** `message.received`, `message.sent`, `message.delivered`, `message.read`, `message.edited`, `message.deleted`, `message.failed_waiting_for_retry`, `message.failed`, `reaction.received`, `referral.received`
+- **Comments:** `comment.created`, `comment.failed`, `comment.failed_waiting_for_retry`, `comment.delivery_unconfirmed`, `comment.edited`, `comment.edit_failed`, `profile_comment.created`, `profile_comment.failed`, `profile_comment.failed_waiting_for_retry`, `profile_comment.edited`, `profile_comment.deleted`
+- **Messages:** `message.received`, `message.sent`, `message.delivered`, `message.read`, `message.edited`, `message.deleted`, `message.failed_waiting_for_retry`, `message.failed`, `reaction.received`, `referral.received`, `chat.thread_control_changed`, `chat.thread_control_requested`
 - **WhatsApp:** `message_template.status_updated`, `message_template.category_updated`, `placement.name_status_updated`, `placement.quality_updated`, `whatsapp.automatic_event`
 
 `PostProxy::WebhookEvents.parse` validates the envelope and returns a typed `Event` — `event.data` is the right model for the event:
@@ -344,13 +344,19 @@ when "profile_comment.created"
   puts "#{event.data.author_username}: #{event.data.body}"
 when "platform_post.edited"
   puts "Edit went live on #{event.data.platform}"
+when "chat.thread_control_changed"
+  # ThreadControlChangedEventData
+  puts "Chat #{event.data.chat.id} now owned by #{event.data.new_owner_app_id}"
+when "profile.disconnected"
+  # ProfileEventData — error / error_details explain an automated disconnect
+  puts "#{event.data.name} disconnected (#{event.data.origin}): #{event.data.error}"
 when "message_template.status_updated"
   # MessageTemplateEventData
   puts "#{event.data.name}: #{event.data.status}"
 end
 ```
 
-The direct-message events (`message.*`) carry a `MessageEventData` (`data.message` is a full `Message`); `reaction.received` carries a `ReactionEventData`; the `profile_comment.*` events carry a `ProfileCommentCreatedData` and the `comment.*` events a `CommentCreatedData` (with `error` / `error_details` on failures). `platform_post.edited` / `edit_failed` reuse `PlatformPostData`; `profile.placements_synced` carries a `PlacementsSyncedData`, the `placement.*` events a `PlacementEventData`, `referral.received` a `ReferralEventData`, `message_template.*` a `MessageTemplateEventData` and `whatsapp.automatic_event` a `WhatsAppAutomaticEventData`.
+The direct-message events (`message.*`) carry a `MessageEventData` (`data.message` is a full `Message`); `reaction.received` carries a `ReactionEventData`; the `profile_comment.*` events carry a `ProfileCommentCreatedData` and the `comment.*` events a `CommentCreatedData` (with `error` / `error_details` on failures). `platform_post.edited` / `edit_failed` reuse `PlatformPostData`; `profile.placements_synced` carries a `PlacementsSyncedData`, the `placement.*` events a `PlacementEventData`, `referral.received` a `ReferralEventData`, `chat.thread_control_changed` a `ThreadControlChangedEventData` and `chat.thread_control_requested` a `ThreadControlRequestedEventData` (each with `data.chat` as a `WebhookChatData`), `message_template.*` a `MessageTemplateEventData` and `whatsapp.automatic_event` a `WhatsAppAutomaticEventData`.
 
 ## Comments
 
@@ -494,6 +500,7 @@ client.messages.send(chat.id, body: "Following up.", tag: "HUMAN_AGENT")
 client.messages.send(chat.id, media: ["https://cdn.example.com/photo.png"])
 client.messages.send(chat.id, media_files: ["./photo.png"])
 
+# Telegram, WhatsApp & Instagram: quote a message with reply_to_external_id
 # Telegram: reply threading + inline keyboard
 client.messages.send(
   chat.id,
@@ -519,6 +526,14 @@ client.chats.mark_read(chat.id)
 # Typing indicator (Facebook, Instagram, WhatsApp)
 client.chats.start_typing(chat.id)
 client.chats.stop_typing(chat.id)
+
+# Thread control (Facebook & Instagram): move the conversation between Meta apps
+# sharing the inbox. Each returns the chat; metadata[:thread_control] holds the owner.
+client.chats.pass_thread_control(chat.id, target_app_id: "263902037430900", metadata: "escalated to support")
+client.chats.take_thread_control(chat.id)
+client.chats.release_thread_control(chat.id)
+client.chats.request_thread_control(chat.id)
+owner = client.chats.thread_owner(chat.id) # ThreadOwner: app_id, expires_at (both nil when idle)
 
 # Private reply to a comment's author (Instagram/Facebook) — returns a Message
 message = client.comments.private_reply("post-id", "comment-id", profile_id: "profile-id", text: "DM-ing you the details.")
@@ -742,6 +757,27 @@ audio = client.profiles.instagram_available_audio("ig-profile-id",
   search_query: "summer"
 )
 puts audio[:data].map { |a| a[:id] }
+
+# Instagram (Facebook login): incoming collaboration invites
+invites = client.profiles.instagram_collaboration_invites("ig-profile-id") # after: invites.next_cursor
+client.profiles.accept_instagram_collaboration_invite("ig-profile-id", invites.collaboration_invites.first.media_id)
+client.profiles.decline_instagram_collaboration_invite("ig-profile-id", "17890000000000001")
+
+# Pinterest boards — a board is a placement; its id is the board_id you publish to
+board = client.profiles.create_pinterest_board("pin-profile-id", "Summer Recipes",
+  description: "Light dinners for hot days",
+  privacy: "PUBLIC" # or "PROTECTED"
+)
+client.profiles.delete_pinterest_board("pin-profile-id", board.id) # also deletes its Pins
+
+# YouTube playlists — publish into one with platforms.youtube.playlist_id
+page = client.profiles.youtube_playlists("yt-profile-id") # page_token: page.next_page_token
+playlist = client.profiles.create_youtube_playlist("yt-profile-id", "Tutorials",
+  description: "Step-by-step guides",
+  privacy_status: "public"
+)
+client.profiles.update_youtube_playlist("yt-profile-id", playlist.id, privacy_status: "unlisted")
+client.profiles.delete_youtube_playlist("yt-profile-id", playlist.id)
 
 # Facebook Page about / contact info (returned as a hash)
 page = client.profiles.facebook_page("fb-profile-id", "page-id")
@@ -991,6 +1027,14 @@ gbp.create_media("gbp-profile-id", "location-id", "https://example.com/storefron
   category: "EXTERIOR", media_format: "PHOTO")
 media = gbp.media("gbp-profile-id", "location-id")
 gbp.delete_media("gbp-profile-id", "location-id", "accounts/1/locations/1/media/9")
+
+# Search keywords that showed the location, month by month (max 12 months).
+# Unlike the rest, this returns a typed SearchKeywordsResponse.
+result = gbp.search_keywords("gbp-profile-id", "location-id", from_month: "2026-07", to_month: "2026-09")
+result.months.each do |month|
+  # Low-volume keywords have impressions nil and an impressions_threshold bound
+  month.keywords.each { |k| puts "#{month.month} #{k.keyword} #{k.impressions || "<#{k.impressions_threshold}"}" }
+end
 ```
 
 ## WhatsApp management
@@ -1149,9 +1193,21 @@ client.posts.create("New drop", profiles: ["threads-profile", "tt-profile"],
 client.posts.create("Summer vibes", profiles: ["ig-profile"],
   media: ["https://example.com/reel.mp4"],
   platforms: { instagram: { format: "reel", audio_id: "1234567890", audio_volume: 60, video_volume: 30 } })
+
+# Instagram: comments off, location tag, reel kept out of the feed; LinkedIn
+# document title and first comment; YouTube playlist
+client.posts.create("Behind the scenes", profiles: ["ig-profile", "li-profile", "yt-profile"],
+  media: ["https://example.com/clip.mp4"],
+  platforms: PostProxy::PlatformParams.new(
+    instagram: PostProxy::InstagramParams.new(format: "reel", disable_comment: true,
+      location_id: "110843418940484", share_to_feed: false),
+    linkedin: PostProxy::LinkedInParams.new(first_comment: "Full write-up: https://example.com/bts"),
+    youtube: PostProxy::YouTubeParams.new(title: "Behind the scenes", playlist_id: "PLxxxxxxxx")
+  )
+)
 ```
 
-`InstagramParams#trial_strategy` takes `"MANUAL"` or `"SS_PERFORMANCE"`.
+`InstagramParams#trial_strategy` takes `"MANUAL"` or `"SS_PERFORMANCE"`. `disable_comment` and `location_id` (a Facebook Page with an address) apply to posts and reels, `share_to_feed` to reels only. `LinkedInParams#document_title` titles an attached document (defaults to the file name); `first_comment` is not available on polls, and LinkedIn profiles connected before 2026-10-28 must reconnect to use it. `YouTubeParams#playlist_id` comes from `client.profiles.youtube_playlists`.
 
 ### Custom covers
 

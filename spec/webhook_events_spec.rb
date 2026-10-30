@@ -175,7 +175,10 @@ RSpec.describe PostProxy::WebhookEvents, "events added since 1.13" do
     "message_template.category_updated" => PostProxy::WebhookEvents::MessageTemplateEventData,
     "placement.name_status_updated" => PostProxy::WebhookEvents::PlacementEventData,
     "placement.quality_updated" => PostProxy::WebhookEvents::PlacementEventData,
-    "whatsapp.automatic_event" => PostProxy::WebhookEvents::WhatsAppAutomaticEventData
+    "whatsapp.automatic_event" => PostProxy::WebhookEvents::WhatsAppAutomaticEventData,
+    "profile_comment.edited" => PostProxy::WebhookEvents::ProfileCommentCreatedData,
+    "chat.thread_control_changed" => PostProxy::WebhookEvents::ThreadControlChangedEventData,
+    "chat.thread_control_requested" => PostProxy::WebhookEvents::ThreadControlRequestedEventData
   }.each do |type, data_class|
     it "parses #{type}" do
       event = described_class.parse(envelope(type, { id: "x" }))
@@ -228,6 +231,41 @@ RSpec.describe PostProxy::WebhookEvents, "events added since 1.13" do
     }))
     expect(event.data.error).to eq("Rejected")
     expect(event.data.error_details).to be_a(PostProxy::ErrorDetails)
+  end
+
+  it "parses chat.thread_control_changed with its chat" do
+    event = described_class.parse(envelope("chat.thread_control_changed", {
+      chat: { id: "chat_1", profile_id: "prof_fb", platform: "facebook", participant_external_id: "psid_1" },
+      previous_owner_app_id: nil, new_owner_app_id: "263902037430900",
+      metadata: "escalated", occurred_at: "2026-10-28T12:00:00Z"
+    }))
+    expect(event.data.chat).to be_a(PostProxy::WebhookEvents::WebhookChatData)
+    expect(event.data.chat.id).to eq("chat_1")
+    expect(event.data.previous_owner_app_id).to be_nil
+    expect(event.data.new_owner_app_id).to eq("263902037430900")
+    expect(event.data.metadata).to eq("escalated")
+  end
+
+  it "parses chat.thread_control_requested" do
+    event = described_class.parse(envelope("chat.thread_control_requested", {
+      chat: { id: "chat_1", profile_id: "prof_ig", platform: "instagram" },
+      requested_owner_app_id: "1217981644879628", metadata: "please", occurred_at: "2026-10-28T12:00:00Z"
+    }))
+    expect(event.data.chat).to be_a(PostProxy::WebhookEvents::WebhookChatData)
+    expect(event.data.requested_owner_app_id).to eq("1217981644879628")
+    expect(event.data.occurred_at).to eq("2026-10-28T12:00:00Z")
+  end
+
+  it "parses profile.disconnected with error and error details" do
+    event = described_class.parse(envelope("profile.disconnected", {
+      id: "pf1", name: "X", platform: "twitter", status: "inactive", origin: "automated",
+      error: "Twitter access revoked",
+      error_details: { platform_error_code: 89, platform_error_message: "Invalid or expired token" }
+    }))
+    expect(event.data.origin).to eq("automated")
+    expect(event.data.error).to eq("Twitter access revoked")
+    expect(event.data.error_details).to be_a(PostProxy::ErrorDetails)
+    expect(event.data.error_details.platform_error_code).to eq(89)
   end
 
   it "parses placement.quality_updated extras" do

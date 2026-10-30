@@ -36,6 +36,8 @@ module PostProxy
 
   INSTAGRAM_AUDIO_TYPES = %w[music original_sound].freeze
 
+  PINTEREST_BOARD_PRIVACIES = %w[PUBLIC PROTECTED].freeze
+
   # Facebook and Instagram profiles connect through Facebook login; WhatsApp
   # through the Cloud API or the WhatsApp Business app.
   CONNECTION_ONBOARDINGS = %w[instagram facebook api business_app].freeze
@@ -77,6 +79,7 @@ module PostProxy
     profile_comment.created
     profile_comment.failed
     profile_comment.failed_waiting_for_retry
+    profile_comment.edited
     profile_comment.deleted
     message.received
     message.sent
@@ -88,6 +91,8 @@ module PostProxy
     message.failed
     reaction.received
     referral.received
+    chat.thread_control_changed
+    chat.thread_control_requested
     message_template.status_updated
     message_template.category_updated
     placement.name_status_updated

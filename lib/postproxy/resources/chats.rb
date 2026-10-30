@@ -86,7 +86,53 @@ module PostProxy
         AcceptedResponse.new(**result)
       end
 
+      # --- Thread control (Facebook & Instagram) ---
+      #
+      # Meta gives one app at a time control of a conversation when several
+      # share a Page or Instagram inbox. These return the chat, whose
+      # `metadata[:thread_control]` holds the owner Meta reports back.
+
+      # Hand the conversation to another Meta app, e.g. Page Inbox
+      # `263902037430900` or Instagram Inbox `1217981644879628`.
+      def pass_thread_control(chat_id, target_app_id:, metadata: nil, profile_group_id: nil, idempotency_key: nil)
+        thread_control(chat_id, "pass_thread_control", { target_app_id: target_app_id },
+          metadata, profile_group_id, idempotency_key)
+      end
+
+      # Take the conversation from whichever app holds it. Needs Conversation
+      # Routing; Instagram must be connected via Facebook.
+      def take_thread_control(chat_id, metadata: nil, profile_group_id: nil, idempotency_key: nil)
+        thread_control(chat_id, "take_thread_control", {}, metadata, profile_group_id, idempotency_key)
+      end
+
+      # Give up control; the conversation goes idle.
+      def release_thread_control(chat_id, metadata: nil, profile_group_id: nil, idempotency_key: nil)
+        thread_control(chat_id, "release_thread_control", {}, metadata, profile_group_id, idempotency_key)
+      end
+
+      # Ask the current owner to pass the conversation. Nothing changes until
+      # it does — watch for `chat.thread_control_changed`.
+      def request_thread_control(chat_id, metadata: nil, profile_group_id: nil, idempotency_key: nil)
+        thread_control(chat_id, "request_thread_control", {}, metadata, profile_group_id, idempotency_key)
+      end
+
+      # Ask Meta who controls the conversation right now.
+      def thread_owner(chat_id, profile_group_id: nil)
+        result = @client.request(:get, "/chats/#{chat_id}/thread_owner", profile_group_id: profile_group_id)
+        ThreadOwner.new(**result)
+      end
+
       private
+
+      def thread_control(chat_id, action, json_body, metadata, profile_group_id, idempotency_key)
+        json_body[:metadata] = metadata unless metadata.nil?
+        result = @client.request(:post, "/chats/#{chat_id}/#{action}",
+          json: json_body,
+          profile_group_id: profile_group_id,
+          idempotency_key: idempotency_key
+        )
+        Chat.new(**result)
+      end
 
       def format_time(value)
         return value if value.is_a?(String)

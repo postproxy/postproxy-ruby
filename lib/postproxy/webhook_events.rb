@@ -53,8 +53,18 @@ module PostProxy
 
     class ProfileEventData < Model
       # `origin` is set on `profile.disconnected`: "user" or "automated".
+      # With "automated", `error` says why PostProxy deactivated it (e.g.
+      # "Twitter access revoked") and `error_details` carries the raw platform
+      # error, when available.
       attr_accessor :id, :name, :platform, :profile_group_id, :status, :uid,
-                    :platform_id, :username, :origin
+                    :platform_id, :username, :origin, :error, :error_details
+
+      def initialize(**attrs)
+        @error = nil
+        @error_details = nil
+        super
+        @error_details = ErrorDetails.new(**@error_details.transform_keys(&:to_sym)) if @error_details.is_a?(Hash)
+      end
     end
 
     # `id` is the placement's id on the platform (page id, phone number id,
@@ -157,6 +167,36 @@ module PostProxy
       end
     end
 
+    # Another Meta app passed or took a Facebook / Instagram conversation.
+    # `previous_owner_app_id` is nil when the conversation was idle.
+    class ThreadControlChangedEventData < Model
+      attr_accessor :chat, :previous_owner_app_id, :new_owner_app_id, :metadata, :occurred_at
+
+      def initialize(**attrs)
+        @chat = nil
+        @previous_owner_app_id = nil
+        @new_owner_app_id = nil
+        @metadata = nil
+        @occurred_at = nil
+        super
+        @chat = WebhookChatData.new(**@chat.transform_keys(&:to_sym)) if @chat.is_a?(Hash)
+      end
+    end
+
+    # Another Meta app asked PostProxy to pass a conversation.
+    class ThreadControlRequestedEventData < Model
+      attr_accessor :chat, :requested_owner_app_id, :metadata, :occurred_at
+
+      def initialize(**attrs)
+        @chat = nil
+        @requested_owner_app_id = nil
+        @metadata = nil
+        @occurred_at = nil
+        super
+        @chat = WebhookChatData.new(**@chat.transform_keys(&:to_sym)) if @chat.is_a?(Hash)
+      end
+    end
+
     class MessageTemplateEventData < Model
       attr_accessor :id, :external_id, :profile_id, :platform, :name, :language,
                     :category, :status, :rejected_reason, :quality_score
@@ -192,6 +232,7 @@ module PostProxy
       "profile_comment.created" => ProfileCommentCreatedData,
       "profile_comment.failed" => ProfileCommentCreatedData,
       "profile_comment.failed_waiting_for_retry" => ProfileCommentCreatedData,
+      "profile_comment.edited" => ProfileCommentCreatedData,
       "profile_comment.deleted" => ProfileCommentCreatedData,
       "message.received" => MessageEventData,
       "message.sent" => MessageEventData,
@@ -203,6 +244,8 @@ module PostProxy
       "message.failed" => MessageEventData,
       "reaction.received" => ReactionEventData,
       "referral.received" => ReferralEventData,
+      "chat.thread_control_changed" => ThreadControlChangedEventData,
+      "chat.thread_control_requested" => ThreadControlRequestedEventData,
       "message_template.status_updated" => MessageTemplateEventData,
       "message_template.category_updated" => MessageTemplateEventData,
       "placement.name_status_updated" => PlacementEventData,

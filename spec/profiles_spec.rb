@@ -329,4 +329,86 @@ RSpec.describe PostProxy::Resources::Profiles, "stats, mentions, chat syncs" do
     expect(runs.data.first).to be_a(PostProxy::ChatSync)
     [start, list, one].each { |s| expect(s).to have_been_requested }
   end
+
+  it "lists, accepts and declines Instagram collaboration invites" do
+    list = stub_api(:get, "/profiles/p1/instagram/collaboration_invites",
+      body: {
+        collaboration_invites: [
+          { media_id: "1789", media_owner_username: "partner_brand", caption: "Collab", media_url: "https://x" }
+        ],
+        next_cursor: nil
+      },
+      query: { after: "cur_1" })
+    accept = stub_request(:post, "#{BASE_URL}/api/profiles/p1/instagram/accept_collaboration_invite")
+      .with(body: { media_id: "1789" })
+      .to_return(json_response({ accepted: true, media_id: "1789" }))
+    decline = stub_request(:post, "#{BASE_URL}/api/profiles/p1/instagram/decline_collaboration_invite")
+      .with(body: { media_id: "1790" })
+      .to_return(json_response({ declined: true, media_id: "1790" }))
+
+    invites = client.profiles.instagram_collaboration_invites("p1", after: "cur_1")
+    accepted = client.profiles.accept_instagram_collaboration_invite("p1", "1789")
+    declined = client.profiles.decline_instagram_collaboration_invite("p1", "1790")
+
+    expect(invites).to be_a(PostProxy::InstagramCollaborationInvitesResponse)
+    expect(invites.collaboration_invites.first).to be_a(PostProxy::InstagramCollaborationInvite)
+    expect(invites.collaboration_invites.first.media_owner_username).to eq("partner_brand")
+    expect(invites.next_cursor).to be_nil
+    expect(accepted).to be_a(PostProxy::InstagramCollaborationInviteResult)
+    expect(accepted.accepted).to be true
+    expect(declined.declined).to be true
+    expect(declined.media_id).to eq("1790")
+    [list, accept, decline].each { |s| expect(s).to have_been_requested }
+  end
+
+  it "creates and deletes Pinterest boards" do
+    create = stub_request(:post, "#{BASE_URL}/api/profiles/p1/pinterest/create_board")
+      .with(body: { name: "Summer Recipes", description: "Light dinners", privacy: "PROTECTED" })
+      .to_return(json_response({ id: "1022", name: "Summer Recipes", avatar_url: nil, metadata: {} }))
+    del = stub_api(:delete, "/profiles/p1/pinterest/delete_board",
+      body: { deleted: true, board_id: "1022" }, query: { board_id: "1022" })
+
+    board = client.profiles.create_pinterest_board("p1", "Summer Recipes",
+      description: "Light dinners", privacy: "PROTECTED")
+    result = client.profiles.delete_pinterest_board("p1", "1022")
+
+    expect(board).to be_a(PostProxy::Placement)
+    expect(board.id).to eq("1022")
+    expect(result).to be_a(PostProxy::PinterestBoardDeleted)
+    expect(result.deleted).to be true
+    expect(result.board_id).to eq("1022")
+    [create, del].each { |s| expect(s).to have_been_requested }
+  end
+
+  it "manages YouTube playlists" do
+    playlist = {
+      id: "PL1", title: "Tutorials", description: "", privacy_status: "public",
+      item_count: 3, thumbnail_url: nil, published_at: "2026-03-14T09:21:00.000Z"
+    }
+    list = stub_api(:get, "/profiles/p1/youtube/playlists",
+      body: { data: [playlist], next_page_token: nil }, query: { page_token: "tok" })
+    create = stub_request(:post, "#{BASE_URL}/api/profiles/p1/youtube/create_playlist")
+      .with(body: { title: "Tutorials", privacy_status: "unlisted" })
+      .to_return(json_response(playlist))
+    update = stub_request(:patch, "#{BASE_URL}/api/profiles/p1/youtube/update_playlist")
+      .with(body: { playlist_id: "PL1", description: "" })
+      .to_return(json_response(playlist))
+    del = stub_api(:delete, "/profiles/p1/youtube/delete_playlist",
+      body: { deleted: true, playlist_id: "PL1" }, query: { playlist_id: "PL1" })
+
+    page = client.profiles.youtube_playlists("p1", page_token: "tok")
+    created = client.profiles.create_youtube_playlist("p1", "Tutorials", privacy_status: "unlisted")
+    client.profiles.update_youtube_playlist("p1", "PL1", description: "")
+    deleted = client.profiles.delete_youtube_playlist("p1", "PL1")
+
+    expect(page).to be_a(PostProxy::YouTubePlaylistsResponse)
+    expect(page.data.first).to be_a(PostProxy::YouTubePlaylist)
+    expect(page.data.first.item_count).to eq(3)
+    expect(page.data.first.published_at).to be_a(Time)
+    expect(page.next_page_token).to be_nil
+    expect(created.id).to eq("PL1")
+    expect(deleted).to be_a(PostProxy::YouTubePlaylistDeleted)
+    expect(deleted.playlist_id).to eq("PL1")
+    [list, create, update, del].each { |s| expect(s).to have_been_requested }
+  end
 end

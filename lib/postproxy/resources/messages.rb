@@ -32,6 +32,9 @@ module PostProxy
       # `elements` sends a carousel of up to 10 cards (Facebook and Instagram);
       # it can't be combined with body, buttons or card.
       #
+      # `reply_to_external_id` (Telegram, WhatsApp and Instagram) is the
+      # `external_id` of the message to quote.
+      #
       # WhatsApp: send exactly one of body, media, `template`, `interactive`,
       # `location` or `contacts`. Outside the 24-hour window only a `template`
       # gets through. `category: "utility"` sends a text message under the

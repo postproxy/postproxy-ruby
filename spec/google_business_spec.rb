@@ -122,4 +122,39 @@ RSpec.describe PostProxy::Resources::GoogleBusiness do
 
     stubs.each { |s| expect(s).to have_been_requested }
   end
+
+  it "reads search keywords into typed models" do
+    stub = stub_gbp(:get, "search_keywords",
+      body: {
+        months: [
+          {
+            month: "2026-07",
+            keywords: [
+              { keyword: "coffee near me", impressions: 245, impressions_threshold: nil },
+              { keyword: "acme coffee", impressions: nil, impressions_threshold: 15 }
+            ]
+          }
+        ]
+      },
+      query: { location_id: "loc_1", from_month: "2026-07", to_month: "2026-09" })
+
+    result = gbp.search_keywords("prof_gbp", "loc_1", from_month: "2026-07", to_month: "2026-09")
+    expect(stub).to have_been_requested
+    expect(result).to be_a(PostProxy::SearchKeywordsResponse)
+    month = result.months.first
+    expect(month).to be_a(PostProxy::SearchKeywordsMonth)
+    expect(month.month).to eq("2026-07")
+    expect(month.keywords.first).to be_a(PostProxy::SearchKeyword)
+    expect(month.keywords.first.impressions).to eq(245)
+    expect(month.keywords[1].impressions).to be_nil
+    expect(month.keywords[1].impressions_threshold).to eq(15)
+  end
+
+  it "omits unset search keyword months" do
+    stub = stub_gbp(:get, "search_keywords", body: { months: [] }, query: { location_id: "loc_1" })
+
+    result = gbp.search_keywords("prof_gbp", "loc_1")
+    expect(stub).to have_been_requested
+    expect(result.months).to eq([])
+  end
 end

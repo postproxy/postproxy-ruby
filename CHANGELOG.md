@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.0] - 2026-10-30
+
+### Added
+
+- **Thread control (Facebook & Instagram).** `chats.pass_thread_control(chat_id, target_app_id:, metadata:)`, `take_thread_control`, `release_thread_control` and `request_thread_control` (each takes `metadata:` and returns the `Chat`, whose `metadata[:thread_control]` holds the owner), plus `chats.thread_owner` (`ThreadOwner`: `app_id`, `expires_at`).
+- **Instagram collaboration invites** (Facebook login): `profiles.instagram_collaboration_invites(id, after:)` (`InstagramCollaborationInvitesResponse` / `InstagramCollaborationInvite`), `accept_instagram_collaboration_invite` and `decline_instagram_collaboration_invite` (`InstagramCollaborationInviteResult`).
+- **Pinterest boards:** `profiles.create_pinterest_board(id, name, description:, privacy:)` returns the new `Placement`; `profiles.delete_pinterest_board(id, board_id)` (`PinterestBoardDeleted`). Constant `PINTEREST_BOARD_PRIVACIES`.
+- **YouTube playlists:** `profiles.youtube_playlists(id, page_token:)` (`YouTubePlaylistsResponse`), `create_youtube_playlist`, `update_youtube_playlist` (`YouTubePlaylist`) and `delete_youtube_playlist` (`YouTubePlaylistDeleted`).
+- **Google Business:** `google_business.search_keywords(profile_id, location_id, from_month:, to_month:)` returns a typed `SearchKeywordsResponse` (`SearchKeywordsMonth`, `SearchKeyword`) — unlike the other Google Business methods, the response is PostProxy-shaped.
+- **Post params:** `InstagramParams` gains `disable_comment`, `location_id` and (reels) `share_to_feed`; `LinkedInParams` gains `document_title` and `first_comment`; `YouTubeParams` gains `playlist_id`.
+- **Webhooks:** `profile_comment.edited` (`ProfileCommentCreatedData`), `chat.thread_control_changed` (`ThreadControlChangedEventData`) and `chat.thread_control_requested` (`ThreadControlRequestedEventData`). `ProfileEventData` gains `error` and `error_details` (`ErrorDetails`), set on `profile.disconnected`.
+- Examples: `youtube_playlists.rb`, `thread_control.rb`; search keywords in `google_business.rb`.
+
+### Changed
+
+- `messages.send_message(reply_to_external_id:)` now also works on Instagram chats.
+
 ## [1.14.0] - 2026-10-20
 
 ### Added

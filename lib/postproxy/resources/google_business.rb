@@ -162,6 +162,18 @@ module PostProxy
         remove(profile_id, "delete_media", location_id, { media_name: media_name }, profile_group_id, idempotency_key)
       end
 
+      # --- Search keywords ---
+
+      # The searches that showed the location in Google Search and Maps, month
+      # by month. Months are "YYYY-MM"; the range is at most 12 months. Unlike
+      # the rest of this resource, the response is PostProxy-shaped
+      # (snake_case) and returned as a SearchKeywordsResponse.
+      def search_keywords(profile_id, location_id, from_month: nil, to_month: nil, profile_group_id: nil)
+        result = read(profile_id, "search_keywords", location_id,
+          { from_month: from_month, to_month: to_month }, profile_group_id)
+        SearchKeywordsResponse.new(**result)
+      end
+
       private
 
       def path(profile_id, action)
